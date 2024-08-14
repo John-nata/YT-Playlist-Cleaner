@@ -18,7 +18,7 @@ The development of this script was greatly inspired by [@colejd's work](https://
 
 ## Screenshot
 
-![Screenshot](https://github.com/user-attachments/assets/8f71879b-57ef-4e73-947a-f17f7a15e667.png)
+![image](https://github.com/user-attachments/assets/48dd8e03-d608-4a87-9dd6-3f67e3c77e15)
 
 ## Installation
 

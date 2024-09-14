@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         YT Playlist Cleaner
-// @version      1.1.0
+// @version      1.2.0
 // @description  YouTube playlist cleaner with customizable settings, auto-scroll functionality, and improved UI
 // @author       John-nata
-// @match      http*://*.youtube.com/playlist*
-// @match      http*://youtube.com/playlist*
+// @match        http*://*.youtube.com/playlist*
+// @match        http*://youtube.com/playlist*
 // @run-at       document-idle
 // @homepageURL  https://github.com/John-nata/Youtube-Playlist-Cleaner/
 // ==/UserScript==
@@ -13,8 +13,8 @@ let config = {
   threshold: 0,
   minDelay: 2,
   maxDelay: 7,
-  maxDelete: Infinity,
-  pauseAfter: Infinity,
+  maxDelete: 200,
+  pauseAfter: 100,
   pauseDuration: 60,
   deletePrivate: false,
   shuffleDelete: false,
@@ -94,6 +94,8 @@ function createFloatingUI() {
 
   const minDelayContainer = createInputContainer("Min Delay (s):", "minDelay", "number", config.minDelay, 1, 60);
   const maxDelayContainer = createInputContainer("Max Delay (s):", "maxDelay", "number", config.maxDelay, 1, 60);
+  const maxDeleteContainer = createInputContainer("Max videos to delete:", "maxDelete", "number", config.maxDelete, 1, Infinity);
+  const pauseAfterContainer = createInputContainer("Pause after (videos):", "pauseAfter", "number", config.pauseAfter, 1, Infinity);
 
   const deleteButton = createButton("Start Deleting", "#ff0000");
   const pauseResumeButton = createButton("Pause", "#f39c12");
@@ -124,6 +126,8 @@ function createFloatingUI() {
   floatingUI.appendChild(title);
   floatingUI.appendChild(minDelayContainer);
   floatingUI.appendChild(maxDelayContainer);
+  floatingUI.appendChild(maxDeleteContainer);
+  floatingUI.appendChild(pauseAfterContainer);
   floatingUI.appendChild(deleteButton);
   floatingUI.appendChild(pauseResumeButton);
   floatingUI.appendChild(advancedOptionsToggle);
@@ -189,8 +193,6 @@ function createAdvancedOptions() {
   container.style.borderRadius = "5px";
 
   const thresholdContainer = createInputContainer("Threshold %:", "threshold", "number", config.threshold, 0, 100);
-  const maxDeleteContainer = createInputContainer("Max videos to delete:", "maxDelete", "number", config.maxDelete, 1, Infinity);
-  const pauseAfterContainer = createInputContainer("Pause after (videos):", "pauseAfter", "number", config.pauseAfter, 1, Infinity);
   const pauseDurationContainer = createInputContainer("Pause duration (s):", "pauseDuration", "number", config.pauseDuration, 1, 3600);
   const autoScrollContainer = createInputContainer("Auto-scroll every (videos):", "autoScrollEvery", "number", config.autoScrollEvery, 1, Infinity);
 
@@ -198,8 +200,6 @@ function createAdvancedOptions() {
   const shuffleDeleteCheckbox = createCheckbox("Shuffle delete order", "shuffleDelete", config.shuffleDelete);
 
   container.appendChild(thresholdContainer);
-  container.appendChild(maxDeleteContainer);
-  container.appendChild(pauseAfterContainer);
   container.appendChild(pauseDurationContainer);
   container.appendChild(autoScrollContainer);
   container.appendChild(deletePrivateCheckbox);
@@ -431,7 +431,6 @@ function showSummaryNotification(totalProcessed, deleted, skipped, duration) {
   showNotification(message, 'info', 10000); // Show for 10 seconds
 }
 
-// Add these new functions for notifications
 function createNotificationContainer() {
   const container = document.createElement('div');
   container.id = 'yt-cleanser-notifications';
@@ -444,7 +443,7 @@ function createNotificationContainer() {
   return container;
 }
 
-function showNotification(message, type = 'info') {
+function showNotification(message, type = 'info', duration = 5000) {
   const container = document.getElementById('yt-cleanser-notifications') || createNotificationContainer();
   const notification = document.createElement('div');
   notification.textContent = message;
@@ -474,7 +473,7 @@ function showNotification(message, type = 'info') {
     setTimeout(() => {
       container.removeChild(notification);
     }, 500);
-  }, 5000);
+  }, duration);
 }
 
 // Override console.log, console.warn, and console.error to show notifications

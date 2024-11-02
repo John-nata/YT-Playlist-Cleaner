@@ -5,7 +5,8 @@
 YouTube Playlist Cleaner is a userscript that helps you tidy up your YouTube playlists by automatically removing videos based on customisable settings. 
 It features auto-scroll functionality and an improved user interface for a seamless experience.
 
-The development of this script was greatly inspired by [@colejd's work](https://gist.github.com/astamicu/eb351ce10451f1a51b71a1287d36880f?permalink_comment_id=4489588#gistcomment-4489588) .
+The development of this script was greatly inspired by [@colejd's work](https://gist.github.com/astamicu/eb351ce10451f1a51b71a1287d36880f?permalink_comment_id=4489588#gistcomment-4489588).
+This script has been optimized with the help of Claude AI.
 
 ## Features
 

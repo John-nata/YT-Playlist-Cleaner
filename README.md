@@ -44,7 +44,8 @@ Full changelog [here](#changelog)
 
 ## Screenshot
 
-![image](https://github.com/user-attachments/assets/48dd8e03-d608-4a87-9dd6-3f67e3c77e15)
+![image](https://github.com/user-attachments/assets/965f8ed3-d66e-43d7-9240-f6b934d3485c)
+
 
 ## Usage
 

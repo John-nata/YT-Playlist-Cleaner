@@ -14,7 +14,7 @@ This script has been further optimised with the help of Claude AI.
 2. Click on the following link to install the script: [Install YouTube Playlist Cleaner](https://github.com/John-nata/YT-Playlist-Cleaner/raw/main/YT-playlist-cleaner.js)
 3. The script will automatically run when you visit a YouTube playlist page.
 
-## What's New in v1.5.0 
+## What's New in v1.5.1 
 
 ### ✨ New Features
 - **First-Time Welcome Message**: A friendly popup with tips for new users.
@@ -80,7 +80,7 @@ let config = {
 };
 ```
 ## Changelog 
-(1.2.0 => 1.5.0)
+(1.2.0 => 1.5.1)
 
 ### 🔧 Improvements
 
@@ -113,6 +113,7 @@ let config = {
 - Fixed video deletion confirmation glitches.
 - Addressed UI issues with large playlists.
 - Eliminated memory leaks in notifications.
+- Fix for multiple instances of the UI appearing.
 
 
 ## Compatibility

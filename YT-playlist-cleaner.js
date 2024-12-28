@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         YT Playlist Cleaner
-// @version      1.5.0
+// @version      1.5.1
 // @description  A handy tool to tidy up your YouTube playlists with custom settings and smart features
 // @author       John-nata
 // @match        http*://*.youtube.com/playlist*
@@ -127,7 +127,7 @@ const deleteButtonTexts = {
   de: ["Löschen", "Aus 'Später ansehen' entfernen"],
   it: ["Elimina", "Rimuovi da Guarda più tardi"],
   pt: ["Excluir", "Remover de Assistir mais tarde"],
-  ru: ["Удалить", "Удалить из списка «Смотреть позже»"],
+  ru: ["Удалить", "Уда��ить из списка «Смотреть позже»"],
   ja: ["削除", "後で見るから削除"],
   ko: ["삭제", "나중에 볼 동영상에서 제거"],
   zh: ["删除", "从稍后观看中删除"],
@@ -164,6 +164,16 @@ function waitForElement(selector) {
 }
 // Creates the main interface for the cleaner
 function createFloatingUI() {
+  // Check if UI already exists
+  const existingUI = document.getElementById("yt-playlist-cleaner-ui");
+  if (existingUI) {
+    return {
+      progressBar: existingUI.querySelector("progress"),
+      statusText: existingUI.querySelector(".status-text"),
+      countdownText: existingUI.querySelector(".countdown-text")
+    };
+  }
+
   const floatingUI = document.createElement("div");
   floatingUI.id = "yt-playlist-cleaner-ui";
   floatingUI.style.cssText = `
@@ -253,24 +263,25 @@ function createFloatingUI() {
   floatingUI.appendChild(progressContainer);
 
   // Add dark mode toggle
-  const darkModeToggle = document.createElement("div");
+  const darkModeToggle = document.createElement("button");
+  darkModeToggle.textContent = '🌓';
   darkModeToggle.style.cssText = `
     position: absolute;
-    top: 16px;
-    right: 16px;
+    top: 10px;
+    right: 10px;
+    padding: 5px 10px;
+    border-radius: 5px;
     cursor: pointer;
-    padding: 8px;
-    border-radius: 50%;
-    transition: background-color 0.2s;
+    background: none;
+    border: none;
+    font-size: 16px;
   `;
 
-  darkModeToggle.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
-    </svg>
-  `;
+  darkModeToggle.addEventListener('click', () => {
+    config.darkMode = !config.darkMode;
+    updateTheme();
+  });
 
-  darkModeToggle.addEventListener("click", toggleDarkMode);
   floatingUI.appendChild(darkModeToggle);
 
   document.body.appendChild(floatingUI);
@@ -891,30 +902,65 @@ function updateTheme() {
   if (!ui) return;
 
   if (config.darkMode) {
-    ui.style.backgroundColor = '#232323';
-    ui.style.color = '#ffffff';
-    // Update other elements' colors
-    document.querySelectorAll('#yt-playlist-cleaner-ui input').forEach(input => {
-      input.style.backgroundColor = '#333333';
-      input.style.color = '#ffffff';
-      input.style.borderColor = '#444444';
+    ui.style.cssText += `
+      background-color: #232323;
+      color: #ffffff;
+      border-color: #444444;
+    `;
+
+    // Update input fields
+    ui.querySelectorAll('input').forEach(input => {
+      input.style.cssText += `
+        background-color: #333333;
+        color: #ffffff;
+        border: 1px solid #444444;
+      `;
     });
-    document.querySelectorAll('#yt-playlist-cleaner-ui label').forEach(label => {
-      label.style.color = '#cccccc';
+
+    // Update buttons
+    ui.querySelectorAll('button').forEach(button => {
+      if (!button.style.backgroundColor.includes('rgb')) {  // Don't override colored buttons
+        button.style.backgroundColor = '#444444';
+      }
     });
+
+    // Update notifications
+    const notificationContainer = document.getElementById('yt-cleanser-notifications');
+    if (notificationContainer) {
+      notificationContainer.querySelectorAll('.notification').forEach(notification => {
+        if (!notification.classList.contains('info') &&
+            !notification.classList.contains('warning') &&
+            !notification.classList.contains('error')) {
+          notification.style.backgroundColor = '#333333';
+        }
+      });
+    }
   } else {
-    ui.style.backgroundColor = '#ffffff';
-    ui.style.color = '#000000';
-    // Reset other elements' colors
-    document.querySelectorAll('#yt-playlist-cleaner-ui input').forEach(input => {
-      input.style.backgroundColor = '#ffffff';
-      input.style.color = '#000000';
-      input.style.borderColor = '#e0e0e0';
+    ui.style.cssText += `
+      background-color: #ffffff;
+      color: #000000;
+      border-color: #cccccc;
+    `;
+
+    // Reset input fields
+    ui.querySelectorAll('input').forEach(input => {
+      input.style.cssText += `
+        background-color: #ffffff;
+        color: #000000;
+        border: 1px solid #cccccc;
+      `;
     });
-    document.querySelectorAll('#yt-playlist-cleaner-ui label').forEach(label => {
-      label.style.color = '#606060';
+
+    // Reset buttons
+    ui.querySelectorAll('button').forEach(button => {
+      if (!button.style.backgroundColor.includes('rgb')) {  // Don't override colored buttons
+        button.style.backgroundColor = '#f0f0f0';
+      }
     });
   }
+
+  // Save the theme preference
+  saveConfig();
 }
 
 // Saves the current configuration
@@ -959,6 +1005,11 @@ function updateStatistics(deletedCount, duration) {
 
 // Modify the initializeScript function
 async function initializeScript() {
+  // Check if already initialized
+  if (document.getElementById("yt-playlist-cleaner-ui")) {
+    return;
+  }
+
   // Load config first
   loadConfig();
 
@@ -1000,7 +1051,7 @@ async function initializeScript() {
   }
 }
 
-
+// Move script initialization to after DOM content is loaded
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeScript);
 } else {

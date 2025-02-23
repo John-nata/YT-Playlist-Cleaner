@@ -43,6 +43,14 @@ let state = {
   }
 };
 
+// Fix TrustedHTML assignment error in chrome
+// Disable checking of strings passed to innerHTML/createHTML
+if (window.trustedTypes && window.trustedTypes.createPolicy) {
+  window.trustedTypes.createPolicy('default', {
+    createHTML: (string, sink) => string
+  });
+}
+
 // Check if it's first time and show welcome message
 if (!localStorage.getItem('ytPlaylistCleanerFirstTime')) {
   window.addEventListener('load', () => {

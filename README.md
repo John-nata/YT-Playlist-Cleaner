@@ -14,17 +14,13 @@ This script has been further optimised with the help of Claude AI.
 2. Click on the following link to install the script: [Install YouTube Playlist Cleaner](https://github.com/John-nata/YT-Playlist-Cleaner/raw/main/YT-playlist-cleaner.js)
 3. The script will automatically run when you visit a YouTube playlist page.
 
-## What's New in v1.5.1 
+## What's New in v1.6 
 
-### ✨ New Features
-- **First-Time Welcome Message**: A friendly popup with tips for new users.
-- **Dark Mode**: Tackle playlists comfortably at night.
-- **Smart Retry System**: Automatically retries failed operations up to 3 times.
-- **Usage Statistics**: Track cleaning sessions, videos deleted, and average processing time.
-- **Batch Processing**: Processes videos in smaller batches to avoid browser issues.
-- Improved error handling, performance, and UI responsiveness.
-- Introduced batch processing, config persistence, and refactored code.
-- Fixed scrolling, deletion, and notification issues.
+### Fixes
+
+- **Chrome Trusted Types Policy Issue** Credits to [@f0x4](https://github.com/f0x4) for the [fix](https://github.com/John-nata/YT-Playlist-Cleaner/issues/2)   
+- **Pause/Resume Logic Update**  
+- **Logging Improvements**  
 
 Full changelog [here](#changelog) 
 
@@ -81,6 +77,19 @@ let config = {
 };
 ```
 ## Changelog 
+
+(1.6.0)
+
+### 🪛 Fixes
+
+**Chrome Trusted Types Policy Issue**  
+ - Resolved the `TrustedHTML` assignment error in Chrome by implementing a Trusted Types policy.  
+  Credits to [@f0x4](https://github.com/f0x4) for the [fix](https://github.com/John-nata/YT-Playlist-Cleaner/issues/2)
+
+**Pause/Resume Logic Update**  
+ - Updated outdated logic for the pause/resume functionality to ensure smoother playlist management.
+ - Enhanced logging for better debugging and user feedback during script execution.
+
 (1.2.0 => 1.5.1)
 
 ### 🔧 Improvements

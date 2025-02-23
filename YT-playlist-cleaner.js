@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         YT Playlist Cleaner
-// @version      1.5.1
+// @version      1.6
 // @description  A handy tool to tidy up your YouTube playlists with custom settings and smart features
 // @author       John-nata
 // @match        http*://*.youtube.com/playlist*
@@ -43,20 +43,19 @@ let state = {
   }
 };
 
-// Fix TrustedHTML assignment error in chrome
-// Disable checking of strings passed to innerHTML/createHTML
-if (window.trustedTypes && window.trustedTypes.createPolicy) {
-  window.trustedTypes.createPolicy('default', {
-    createHTML: (string, sink) => string
-  });
-}
-
 // Check if it's first time and show welcome message
 if (!localStorage.getItem('ytPlaylistCleanerFirstTime')) {
   window.addEventListener('load', () => {
     setTimeout(showFirstTimeMessage, 2000);
   });
 }
+
+// Add Trusted Types policy for innerHTML safety
+if (window.trustedTypes && window.trustedTypes.createPolicy) {
+    window.trustedTypes.createPolicy('default', {
+      createHTML: (string) => string
+    });
+  }
 
 // Add this function
 function showFirstTimeMessage() {
@@ -135,7 +134,7 @@ const deleteButtonTexts = {
   de: ["Löschen", "Aus 'Später ansehen' entfernen"],
   it: ["Elimina", "Rimuovi da Guarda più tardi"],
   pt: ["Excluir", "Remover de Assistir mais tarde"],
-  ru: ["Удалить", "Уда��ить из списка «Смотреть позже»"],
+  ru: ["Удалить", "Удалить из списка «Смотреть позже»"],
   ja: ["削除", "後で見るから削除"],
   ko: ["삭제", "나중에 볼 동영상에서 제거"],
   zh: ["删除", "从稍后观看中删除"],
@@ -301,6 +300,7 @@ function createFloatingUI() {
 
   pauseResumeButton.addEventListener("click", function () {
     state.isPaused = !state.isPaused;
+    console.log(`Pause state changed: ${state.isPaused}`);
     pauseResumeButton.textContent = state.isPaused ? "Resume" : "Pause";
   });
 
@@ -540,8 +540,10 @@ async function cleanse(progressBar, statusText, countdownText) {
     }
 
     while (state.isPaused) {
+      console.log("Deletion paused...");
       await sleep(1000);
     }
+    console.log("Resuming deletion...");
 
     console.log(`${video.title} (${video.progress}%)`);
     state.currentVideo++;

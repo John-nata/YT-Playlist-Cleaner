@@ -6,7 +6,7 @@
 // @match        http*://*.youtube.com/playlist*
 // @match        http*://youtube.com/playlist*
 // @run-at       document-idle
-// @homepageURL  https://github.com/John-nata/Youtube-Playlist-Cleaner/
+// @homepageURL  https://github.com/John-nata/YT-Playlist-Cleaner
 // ==/UserScript==
 
 // Main settings for the cleaner

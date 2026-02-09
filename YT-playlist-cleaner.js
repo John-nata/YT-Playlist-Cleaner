@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         YT Playlist Cleaner
-// @version      1.6
+// @name         YT Playlist Cleaner 
+// @version      2.0
 // @description  A handy tool to tidy up your YouTube playlists with custom settings and smart features
 // @author       John-nata
 // @match        http*://*.youtube.com/playlist*
@@ -24,6 +24,10 @@ let config = {
   maxBatchSize: 10,
   batchPauseTime: 50,
   uiUpdateInterval: 100,
+  // New feature: only delete unavailable (private/deleted) videos
+  onlyUnavailable: false,
+  // New feature: skip videos added within last N days (0 = disabled)
+  deleteOlderThanDays: 0,
 };
 
 // Keeps track of what's happening during the clean-up
@@ -31,7 +35,11 @@ let state = {
   deletedCount: 0,
   totalVideos: 0,
   currentVideo: 0,
+  skippedCount: 0,  // Track skipped videos for batch logging
   isPaused: false,
+  isAutoPaused: false,
+  pauseState: 'running',
+  pauseNotificationId: null,  // Reference to persistent pause notification
   startTime: null,
   consecutiveErrors: 0,
   lastErrorTime: null,
@@ -137,15 +145,32 @@ const deleteButtonTexts = {
   ru: ["Удалить", "Удалить из списка «Смотреть позже»"],
   ja: ["削除", "後で見るから削除"],
   ko: ["삭제", "나중에 볼 동영상에서 제거"],
-  zh: ["删除", "从稍后观看中删除"],
+  zh: ["删除", "从稍后观看中删除"],   // Simplified Chinese
   he: ["מחק", "מחק מהסט של צפייה בהמשך"],
   ar: ["إزالة", "إزالة من مشاهدة لاحقًا"],
   nl: ["Verwijderen", "Verwijderen van Later bekijken"],
-  pl: ["Usuń", "Usuń z listy "],
-  tr: ["Sil", "Silinecek listeye ekle"],
+  pl: ["Usuń", "Usuń z listy Do obejrzenia"],  // Polish
+  tr: ["Sil", "Daha sonra izle listesinden kaldır"],  // Fixed: correct Turkish
   hu: ["Törlés", "Törlés a Később megnézéshez"],
-  cs: ["Odstranit", "Odstranit z listy "],
-  // ... other languages ...
+  cs: ["Odstranit", "Odstranit z Přehrát později"],  // Fixed: complete Czech translation
+  // New languages added
+  sv: ["Ta bort", "Ta bort från Titta senare"],
+  da: ["Slet", "Fjern fra Se senere"],  // Danish
+  no: ["Slett", "Fjern fra Se senere"],  // Norwegian
+  fi: ["Poista", "Poista Katso myöhemmin -luettelosta"],  // Finnish
+  uk: ["Видалити", "Видалити зі списку «Переглянути пізніше»"],  // Ukrainian
+  ro: ["Șterge", "Elimină din Vizionează mai târziu"],  // Romanian
+  sk: ["Odstrániť", "Odstrániť zo zoznamu Pozrieť neskôr"],  // Slovak
+  bg: ["Изтриване", "Премахване от Гледай по-късно"],  // Bulgarian
+  hr: ["Izbriši", "Ukloni s popisa Pogledaj kasnije"],  // Croatian
+  el: ["Διαγραφή", "Κατάργηση από το Παρακολούθηση αργότερα"],  // Greek
+  ca: ["Suprimeix", "Suprimeix de Mira-ho més tard"],  // Catalan
+  hi: ["हटाएं", "बाद में देखें से हटाएं"],  // Hindi
+  th: ["ลบ", "นำออกจากดูภายหลัง"],  // Thai
+  vi: ["Xóa", "Xóa khỏi danh sách Xem sau"],  // Vietnamese
+  id: ["Hapus", "Hapus dari Tonton nanti"],  // Indonesian
+  ms: ["Padam", "Alih keluar daripada Tonton kemudian"],  // Malay
+  tl: ["Tanggalin", "Alisin sa Panoorin sa ibang pagkakataon"],  // Filipino/Tagalog
 };
 
 // Waits for something to show up on the page
@@ -187,130 +212,275 @@ function createFloatingUI() {
     position: fixed;
     top: 20px;
     right: 20px;
-    background-color: #ffffff;
+    background: linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%);
     border: none;
-    border-radius: 12px;
-    padding: 16px;
+    border-radius: 16px;
+    padding: 0;
     z-index: 9999;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    width: 320px;
-    resize: both;
-    overflow: auto;
-    min-width: 280px;
-    min-height: 200px;
-    font-family: 'YouTube Sans', Roboto, Arial, sans-serif;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
+    width: 360px;
+    min-width: 320px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    font-family: 'YouTube Sans', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+    transition: box-shadow 0.3s ease, transform 0.2s ease;
+    overflow: hidden;
   `;
 
-  // Add a header with icon
+  // Add hover effect for elevation
+  floatingUI.addEventListener('mouseenter', () => {
+    floatingUI.style.boxShadow = '0 16px 48px rgba(255,0,0,0.15), 0 8px 24px rgba(0,0,0,0.12)';
+    floatingUI.style.transform = 'translateY(-2px)';
+  });
+  floatingUI.addEventListener('mouseleave', () => {
+    floatingUI.style.boxShadow = '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)';
+    floatingUI.style.transform = 'translateY(0)';
+  });
+
+  // Add a header with animated gradient background
   const header = document.createElement("div");
   header.style.cssText = `
     display: flex;
     align-items: center;
-    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #ff0000 0%, #cc0000 50%, #ff3333 100%);
+    background-size: 200% 200%;
+    animation: gradientShift 8s ease infinite;
     cursor: move;
+    border-radius: 16px 16px 0 0;
+    flex-shrink: 0;
   `;
 
+  // Add gradient animation keyframes
+  const styleSheet = document.createElement('style');
+  styleSheet.textContent = `
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    @keyframes slideIn {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(styleSheet);
+
   const icon = document.createElement("div");
-  icon.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24">
-    <path fill="#FF0000" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"/>
+  icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24">
+    <path fill="#ffffff" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"/>
   </svg>`;
+  icon.style.cssText = `
+    display: flex;
+    align-items: center;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+  `;
 
   const title = document.createElement("h3");
   title.textContent = "YT Playlist Cleaner";
   title.style.cssText = `
-    margin: 0 0 0 8px;
-    font-size: 18px;
-    font-weight: 500;
-    color: #030303;
+    margin: 0 0 0 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.3px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
   `;
+
+  // Status badge with glow effect
+  const statusBadge = document.createElement("span");
+  statusBadge.id = "cleaner-status-badge";
+  statusBadge.textContent = "Ready";
+  statusBadge.style.cssText = `
+    margin-left: auto;
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #ffffff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,0.3);
+  `;
+
+  // Dark mode toggle in header
+  const darkModeToggle = document.createElement("button");
+  darkModeToggle.id = "dark-mode-toggle";
+  darkModeToggle.innerHTML = '🌙';
+  darkModeToggle.title = "Toggle Dark Mode";
+  darkModeToggle.style.cssText = `
+    margin-left: 8px;
+    padding: 4px 8px;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+  `;
+  darkModeToggle.addEventListener('mouseenter', () => {
+    darkModeToggle.style.background = 'rgba(255,255,255,0.35)';
+    darkModeToggle.style.transform = 'scale(1.1)';
+  });
+  darkModeToggle.addEventListener('mouseleave', () => {
+    darkModeToggle.style.background = 'rgba(255,255,255,0.2)';
+    darkModeToggle.style.transform = 'scale(1)';
+  });
+  darkModeToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    config.darkMode = !config.darkMode;
+    darkModeToggle.innerHTML = config.darkMode ? '☀️' : '🌙';
+    updateTheme();
+  });
 
   header.appendChild(icon);
   header.appendChild(title);
+  header.appendChild(statusBadge);
+  header.appendChild(darkModeToggle);
   floatingUI.appendChild(header);
+
+  // Scrollable content container
+  const content = document.createElement("div");
+  content.id = "cleaner-content";
+  content.style.cssText = `
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+    max-height: calc(85vh - 60px);
+  `;
 
   const minDelayContainer = createInputContainer("Min Delay (s):", "minDelay", "number", config.minDelay, 1, 60);
   const maxDelayContainer = createInputContainer("Max Delay (s):", "maxDelay", "number", config.maxDelay, 1, 60);
   const maxDeleteContainer = createInputContainer("Max videos to delete:", "maxDelete", "number", config.maxDelete, 1, Infinity);
   const pauseAfterContainer = createInputContainer("Pause after (videos):", "pauseAfter", "number", config.pauseAfter, 1, Infinity);
 
-  const deleteButton = createButton("Start Deleting", "#ff0000");
-  const pauseResumeButton = createButton("Pause", "#f39c12");
+  const deleteButton = createButton("▶ Start Deleting", "#ff0000", true);
+  const pauseResumeButton = createButton("⏸ Pause", "#606060", false);
+  pauseResumeButton.id = "pause-resume-btn";
 
-  const advancedOptionsToggle = createButton("Advanced Options", "#3498db");
+  const advancedOptionsToggle = createButton("⚙ Advanced Options", "transparent", false, true);
+  advancedOptionsToggle.style.color = "#065fd4";
+  advancedOptionsToggle.style.border = "1px solid #e0e0e0";
   const advancedOptions = createAdvancedOptions();
   advancedOptions.style.display = "none";
 
+  // Styled progress container
   const progressContainer = document.createElement("div");
-  progressContainer.style.marginTop = "10px";
+  progressContainer.style.cssText = `
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e8e8e8;
+  `;
 
-  const progressBar = document.createElement("progress");
-  progressBar.style.width = "100%";
-  progressBar.style.height = "20px";
+  const progressBar = document.createElement("div");
+  progressBar.style.cssText = `
+    width: 100%;
+    height: 8px;
+    background: #e8e8e8;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  `;
+  
+  const progressFill = document.createElement("div");
+  progressFill.className = "progress-fill";
+  progressFill.style.cssText = `
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #ff0000 0%, #ff4444 100%);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  `;
+  progressBar.appendChild(progressFill);
 
   const statusText = document.createElement("div");
-  statusText.style.marginTop = "5px";
-  statusText.style.fontSize = "12px";
+  statusText.className = "status-text";
+  statusText.style.cssText = `
+    margin-top: 10px;
+    font-size: 13px;
+    color: #606060;
+    font-weight: 500;
+  `;
 
   const countdownText = document.createElement("div");
-  countdownText.style.marginTop = "5px";
-  countdownText.style.fontSize = "12px";
+  countdownText.className = "countdown-text";
+  countdownText.style.cssText = `
+    margin-top: 6px;
+    font-size: 12px;
+    color: #909090;
+  `;
 
   progressContainer.appendChild(progressBar);
   progressContainer.appendChild(statusText);
   progressContainer.appendChild(countdownText);
 
-  floatingUI.appendChild(minDelayContainer);
-  floatingUI.appendChild(maxDelayContainer);
-  floatingUI.appendChild(maxDeleteContainer);
-  floatingUI.appendChild(pauseAfterContainer);
-  floatingUI.appendChild(deleteButton);
-  floatingUI.appendChild(pauseResumeButton);
-  floatingUI.appendChild(advancedOptionsToggle);
-  floatingUI.appendChild(advancedOptions);
-  floatingUI.appendChild(progressContainer);
-
-  // Add dark mode toggle
-  const darkModeToggle = document.createElement("button");
-  darkModeToggle.textContent = '🌓';
-  darkModeToggle.style.cssText = `
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    cursor: pointer;
-    background: none;
-    border: none;
-    font-size: 16px;
-  `;
-
-  darkModeToggle.addEventListener('click', () => {
-    config.darkMode = !config.darkMode;
-    updateTheme();
-  });
-
-  floatingUI.appendChild(darkModeToggle);
+  // Add all elements to content container
+  content.appendChild(minDelayContainer);
+  content.appendChild(maxDelayContainer);
+  content.appendChild(maxDeleteContainer);
+  content.appendChild(pauseAfterContainer);
+  content.appendChild(deleteButton);
+  content.appendChild(pauseResumeButton);
+  content.appendChild(advancedOptionsToggle);
+  content.appendChild(advancedOptions);
+  content.appendChild(progressContainer);
+  floatingUI.appendChild(content);
 
   document.body.appendChild(floatingUI);
 
   deleteButton.addEventListener("click", function () {
     updateConfigFromInputs();
-    cleanse(progressBar, statusText, countdownText);
+    const badge = document.getElementById("cleaner-status-badge");
+    if (badge) {
+      badge.textContent = "Running";
+      badge.style.background = "rgba(46, 204, 113, 0.3)";
+    }
+    cleanse(progressFill, statusText, countdownText);
   });
 
   pauseResumeButton.addEventListener("click", function () {
     state.isPaused = !state.isPaused;
-    console.log(`Pause state changed: ${state.isPaused}`);
-    pauseResumeButton.textContent = state.isPaused ? "Resume" : "Pause";
+    const badge = document.getElementById("cleaner-status-badge");
+    if (state.isPaused) {
+      pauseResumeButton.innerHTML = "▶ Resume";
+      pauseResumeButton.style.background = "#2ecc71";
+      if (badge) {
+        badge.textContent = "Paused";
+        badge.style.background = "rgba(243, 156, 18, 0.3)";
+      }
+      // Show persistent pause notification
+      state.pauseNotificationId = showPersistentNotification('⏸ Deletion paused. Click Resume to continue.', 'warning');
+    } else {
+      pauseResumeButton.innerHTML = "⏸ Pause";
+      pauseResumeButton.style.background = "#606060";
+      if (badge) {
+        badge.textContent = "Running";
+        badge.style.background = "rgba(46, 204, 113, 0.3)";
+      }
+      // Remove persistent pause notification
+      removePersistentNotification(state.pauseNotificationId);
+      state.pauseNotificationId = null;
+    }
+    originalLog(`Pause state changed: ${state.isPaused}`);
   });
 
   advancedOptionsToggle.addEventListener("click", function () {
     advancedOptions.style.display = advancedOptions.style.display === "none" ? "block" : "none";
   });
 
-  makeDraggable(floatingUI, title);
+  makeDraggable(floatingUI, header);
 
-  return { progressBar, statusText, countdownText };
+  // Store progressFill reference for updates
+  floatingUI.progressFill = progressFill;
+
+  return { progressBar: progressFill, statusText, countdownText };
 }
 
 // Makes the interface draggable around the screen
@@ -355,15 +525,21 @@ function createAdvancedOptions() {
   const thresholdContainer = createInputContainer("Threshold %:", "threshold", "number", config.threshold, 0, 100);
   const pauseDurationContainer = createInputContainer("Pause duration (s):", "pauseDuration", "number", config.pauseDuration, 1, 3600);
   const autoScrollContainer = createInputContainer("Auto-scroll every (videos):", "autoScrollEvery", "number", config.autoScrollEvery, 1, Infinity);
+  // New feature: age-based deletion (0 = disabled)
+  const ageFilterContainer = createInputContainer("Delete videos older than (days, 0=off):", "deleteOlderThanDays", "number", config.deleteOlderThanDays, 0, 9999);
 
   const deletePrivateCheckbox = createCheckbox("Delete private videos", "deletePrivate", config.deletePrivate);
   const shuffleDeleteCheckbox = createCheckbox("Shuffle delete order", "shuffleDelete", config.shuffleDelete);
+  // New feature: only delete unavailable (private/deleted) videos
+  const onlyUnavailableCheckbox = createCheckbox("Delete only unavailable videos (deleted/private)", "onlyUnavailable", config.onlyUnavailable);
 
   container.appendChild(thresholdContainer);
   container.appendChild(pauseDurationContainer);
   container.appendChild(autoScrollContainer);
+  container.appendChild(ageFilterContainer);
   container.appendChild(deletePrivateCheckbox);
   container.appendChild(shuffleDeleteCheckbox);
+  container.appendChild(onlyUnavailableCheckbox);
 
   return container;
 }
@@ -432,29 +608,39 @@ function createCheckbox(labelText, id, checked) {
 }
 
 // Creates nice-looking buttons
-function createButton(text, bgColor) {
+function createButton(text, bgColor, isPrimary = false, isOutline = false) {
   const button = document.createElement("button");
-  button.textContent = text;
-  button.style.cssText = `
-    padding: 10px 16px;
-    background-color: ${bgColor};
-    color: white;
-    border: none;
-    border-radius: 18px;
+  button.innerHTML = text;
+  const baseStyles = `
+    padding: ${isPrimary ? '12px 24px' : '10px 16px'};
+    background: ${isOutline ? 'transparent' : bgColor};
+    color: ${isOutline ? bgColor : 'white'};
+    border: ${isOutline ? '1px solid currentColor' : 'none'};
+    border-radius: 20px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: ${isPrimary ? '14px' : '13px'};
     font-weight: 500;
-    margin-right: 12px;
+    margin-right: 10px;
     margin-bottom: 12px;
-    transition: opacity 0.2s, transform 0.2s;
-    &:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-    }
-    &:active {
-      transform: translateY(1px);
-    }
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   `;
+  button.style.cssText = baseStyles;
+  
+  // Add hover effects
+  button.addEventListener('mouseenter', () => {
+    button.style.transform = 'translateY(-1px)';
+    button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    if (!isOutline) button.style.filter = 'brightness(1.1)';
+  });
+  button.addEventListener('mouseleave', () => {
+    button.style.transform = 'translateY(0)';
+    button.style.boxShadow = 'none';
+    button.style.filter = 'none';
+  });
+  
   return button;
 }
 
@@ -469,6 +655,9 @@ function updateConfigFromInputs() {
   config.autoScrollEvery = parseInt(document.getElementById("autoScrollEvery").value, 10);
   config.deletePrivate = document.getElementById("deletePrivate").checked;
   config.shuffleDelete = document.getElementById("shuffleDelete").checked;
+  // New options
+  config.onlyUnavailable = document.getElementById("onlyUnavailable").checked;
+  config.deleteOlderThanDays = parseInt(document.getElementById("deleteOlderThanDays").value, 10) || 0;
   saveConfig();
 }
 
@@ -476,7 +665,7 @@ function updateConfigFromInputs() {
 function* getVideos() {
   // Cache the selector results
   const videoSelector = "ytd-playlist-video-renderer";
-  const videos = Array.from(document.querySelectorAll(videoSelector));
+  let videos = Array.from(document.querySelectorAll(videoSelector));
 
   if (config.shuffleDelete) {
     videos = shuffleArray(videos);
@@ -491,16 +680,82 @@ function* getVideos() {
     // Skip invalid videos
     if (!titleEl || !menuEl) continue;
 
+    // Detect unavailable videos (private/deleted)
+    // YouTube marks these with specific badge text or title patterns
+    // Selector: ytd-badge-supported-renderer contains status badges
+    const badgeEl = video.querySelector("yt-formatted-string.ytd-badge-supported-renderer");
+    const badgeText = badgeEl?.textContent?.toLowerCase() || "";
+    // Also check the title for "[Private video]" or "[Deleted video]" markers
+    const titleText = titleEl.innerText || "";
+    const isUnavailable = 
+      badgeText.includes("private") || 
+      badgeText.includes("deleted") ||
+      titleText.includes("[Private video]") ||
+      titleText.includes("[Deleted video]");
+
+    // Extract date added for age-based filtering
+    // YouTube stores this in the video renderer's data or as visible text
+    // Look for the "#video-info" secondary text which may contain date info
+    const secondaryInfoEl = video.querySelector("#video-info yt-formatted-string");
+    let dateAdded = null;
+    if (secondaryInfoEl) {
+      // Try to parse relative date strings like "3 days ago", "2 weeks ago", etc.
+      const infoText = secondaryInfoEl.textContent || "";
+      dateAdded = parseRelativeDate(infoText);
+    }
+
     yield {
       container: video,
-      title: titleEl.innerText,
+      title: titleText,
       progress: progressEl?.data?.percentDurationWatched ?? 0,
       menu: menuEl,
       menuButton: menuEl.querySelector("yt-icon-button#button"),
-      isPrivate: video.querySelector("yt-formatted-string.ytd-badge-supported-renderer")
-        ?.textContent.toLowerCase() === "private"
+      isPrivate: badgeText === "private",
+      isUnavailable: isUnavailable,
+      dateAdded: dateAdded
     };
   }
+}
+
+// Parses relative date strings like "3 days ago" into a Date object
+// Returns null if parsing fails
+function parseRelativeDate(text) {
+  if (!text) return null;
+  
+  const now = new Date();
+  const lowerText = text.toLowerCase();
+  
+  // Match patterns like "X days/weeks/months/years ago"
+  const match = lowerText.match(/(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago/i);
+  if (!match) return null;
+  
+  const amount = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+  
+  const date = new Date(now);
+  switch (unit) {
+    case 'second': date.setSeconds(date.getSeconds() - amount); break;
+    case 'minute': date.setMinutes(date.getMinutes() - amount); break;
+    case 'hour': date.setHours(date.getHours() - amount); break;
+    case 'day': date.setDate(date.getDate() - amount); break;
+    case 'week': date.setDate(date.getDate() - (amount * 7)); break;
+    case 'month': date.setMonth(date.getMonth() - amount); break;
+    case 'year': date.setFullYear(date.getFullYear() - amount); break;
+    default: return null;
+  }
+  
+  return date;
+}
+
+// Checks if a video is old enough based on deleteOlderThanDays config
+// Returns true if video should be deleted (is old enough or filter disabled)
+function isVideoOldEnough(video) {
+  if (config.deleteOlderThanDays <= 0) return true; // Filter disabled
+  if (!video.dateAdded) return true; // Can't determine age, allow deletion
+  
+  const now = new Date();
+  const ageInDays = (now - video.dateAdded) / (1000 * 60 * 60 * 24);
+  return ageInDays >= config.deleteOlderThanDays;
 }
 
 // Shuffling logic (mixes up the order of videos
@@ -516,13 +771,15 @@ function shuffleArray(array) {
 async function cleanse(progressBar, statusText, countdownText) {
   console.log("Cleansing...");
   state.deletedCount = 0;
+  state.skippedCount = 0;  // Reset skip counter
   state.totalVideos = Array.from(getVideos()).length;
   state.currentVideo = 0;
   state.startTime = Date.now();
+  state.pauseState = 'running';
+  state.isAutoPaused = false;
 
-  // Set the maximum value for progressBar to config.maxDelete
-  progressBar.max = config.maxDelete;
-  progressBar.value = 0;
+  // Reset progress bar
+  progressBar.style.width = '0%';
 
   // Initial scroll to bottom and back to top
   await autoScroll();
@@ -531,7 +788,10 @@ async function cleanse(progressBar, statusText, countdownText) {
 
   let batchSize = 0;
   for (const video of getVideos()) {
-    if (state.deletedCount >= config.maxDelete) break;
+    if (state.deletedCount >= config.maxDelete) {
+      console.log(`[state] Reached maxDelete limit (${config.maxDelete}), stopping`);
+      break;
+    }
 
     // Process in batches to prevent UI freezes
     if (++batchSize >= 10) {
@@ -539,43 +799,93 @@ async function cleanse(progressBar, statusText, countdownText) {
       batchSize = 0;
     }
 
+    // Handle manual pause with state logging
     while (state.isPaused) {
-      console.log("Deletion paused...");
+      if (state.pauseState !== 'pausing') {
+        state.pauseState = 'pausing';
+        originalLog(`[state] pausing → User paused deletion`);
+      }
       await sleep(1000);
     }
-    console.log("Resuming deletion...");
+    if (state.pauseState === 'pausing') {
+      state.pauseState = 'resuming';
+      originalLog(`[state] resuming → User resumed deletion`);
+      state.pauseState = 'running';
+      originalLog(`[state] running → Continuing deletion (deleted: ${state.deletedCount}/${config.maxDelete})`);
+    }
 
     console.log(`${video.title} (${video.progress}%)`);
     state.currentVideo++;
 
-    if ((video.progress >= config.threshold) && (config.deletePrivate || !video.isPrivate)) {
+    // Check all deletion criteria
+    const meetsThreshold = video.progress >= config.threshold;
+    const meetsPrivateFilter = config.deletePrivate || !video.isPrivate;
+    // New: unavailable filter - if enabled, only delete unavailable videos
+    const meetsUnavailableFilter = !config.onlyUnavailable || video.isUnavailable;
+    // New: age filter - only delete videos older than specified days
+    const meetsAgeFilter = isVideoOldEnough(video);
+
+    if (meetsThreshold && meetsPrivateFilter && meetsUnavailableFilter && meetsAgeFilter) {
       console.log("  Deleting...");
       await retry(() => deleteVideo(video, countdownText));
       state.deletedCount++;
 
-      if (state.deletedCount % config.pauseAfter === 0) {
-        console.log(`Pausing for ${config.pauseDuration} seconds after deleting ${config.pauseAfter} videos.`);
+      // Check for automatic pause after N deletions
+      if (state.deletedCount % config.pauseAfter === 0 && state.deletedCount < config.maxDelete) {
+        state.pauseState = 'pausing';
+        state.isAutoPaused = true;
+        console.log(`[state] pausing → Auto-pause triggered after ${config.pauseAfter} videos`);
+        
+        state.pauseState = 'waiting';
+        console.log(`[state] waiting → Pausing for ${config.pauseDuration} seconds...`);
         await countdown(config.pauseDuration, countdownText);
+        
+        state.pauseState = 'resuming';
+        state.isAutoPaused = false;
+        console.log(`[state] resuming → Pause duration complete, continuing deletion`);
+        
+        state.pauseState = 'running';
+        console.log(`[state] running → Resuming (deleted: ${state.deletedCount}/${config.maxDelete}, remaining videos in queue)`);
       }
 
       if (state.deletedCount % config.autoScrollEvery === 0) {
         await autoScroll();
       }
     } else {
-      console.log("  Skipping");
+      // Skip silently - only log to console, not notifications
+      state.skippedCount++;
+      let skipReason = [];
+      if (!meetsThreshold) skipReason.push(`threshold not met`);
+      if (!meetsPrivateFilter) skipReason.push('private video');
+      if (!meetsUnavailableFilter) skipReason.push('not unavailable');
+      if (!meetsAgeFilter) skipReason.push(`too recent`);
+      originalLog(`  Skipping "${video.title.substring(0, 30)}...": ${skipReason.join(', ')}`);
     }
 
-    progressBar.value = state.deletedCount;
-    statusText.textContent = `Progress: ${state.deletedCount}/${config.maxDelete} (Deleted: ${state.deletedCount})`;
+    // Update progress bar (now using percentage-based width)
+    const progressPercent = (state.deletedCount / config.maxDelete) * 100;
+    progressBar.style.width = `${Math.min(progressPercent, 100)}%`;
+    statusText.textContent = `Deleted: ${state.deletedCount} / ${config.maxDelete} target`;
   }
 
-// Shows the final results of the clean-up
-  const endTime = Date.now();
-  const duration = Math.round((endTime - state.startTime) / 1000); // in seconds, rounded
-  console.log(`Done! Deleted ${state.deletedCount} videos in ${duration} seconds`);
-  statusText.textContent = `Completed! Deleted ${state.deletedCount} out of ${state.totalVideos} videos in ${duration} seconds.`;
+  // Log skip summary once at end (not as notification)
+  if (state.skippedCount > 0) {
+    originalLog(`[summary] Skipped ${state.skippedCount} videos that didn't match criteria`);
+  }
 
-  showSummaryNotification(state.totalVideos, state.deletedCount, state.totalVideos - state.deletedCount, duration);
+  // Shows the final results of the clean-up
+  state.pauseState = 'running';
+  const badge = document.getElementById("cleaner-status-badge");
+  if (badge) {
+    badge.textContent = "Done";
+    badge.style.background = "rgba(46, 204, 113, 0.3)";
+  }
+  const endTime = Date.now();
+  const duration = Math.round((endTime - state.startTime) / 1000);
+  console.log(`Done! Deleted ${state.deletedCount} videos in ${duration} seconds`);
+  statusText.textContent = `✓ Completed: ${state.deletedCount} of ${config.maxDelete} target deleted (${state.totalVideos} in playlist)`;
+
+  showSummaryNotification(state.totalVideos, state.deletedCount, state.skippedCount, duration);
   updateStatistics(state.deletedCount, duration);
 }
 
@@ -698,6 +1008,62 @@ function createNotificationContainer() {
   `;
   document.body.appendChild(container);
   return container;
+}
+
+// Shows a persistent notification that stays until manually removed
+let persistentNotificationCounter = 0;
+function showPersistentNotification(message, type = 'info') {
+  const container = document.getElementById('yt-cleanser-notifications') || createNotificationContainer();
+  const id = `persistent-notification-${++persistentNotificationCounter}`;
+  
+  const notification = document.createElement('div');
+  notification.id = id;
+  notification.style.cssText = `
+    padding: 16px;
+    margin-bottom: 8px;
+    border-radius: 12px;
+    color: #fff;
+    font-size: 14px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    backdrop-filter: blur(8px);
+    animation: slideIn 0.3s forwards;
+  `;
+  
+  const colors = {
+    info: 'rgba(6, 95, 212, 0.95)',
+    warning: 'rgba(243, 156, 18, 0.95)',
+    error: 'rgba(231, 76, 60, 0.95)',
+    success: 'rgba(46, 204, 113, 0.95)'
+  };
+  notification.style.backgroundColor = colors[type];
+  
+  const icon = document.createElement('div');
+  icon.innerHTML = getNotificationIcon(type);
+  icon.style.flexShrink = '0';
+  
+  const messageContainer = document.createElement('div');
+  messageContainer.style.flex = '1';
+  messageContainer.innerHTML = message;
+  
+  notification.appendChild(icon);
+  notification.appendChild(messageContainer);
+  container.appendChild(notification);
+  
+  return id;
+}
+
+// Removes a persistent notification by ID
+function removePersistentNotification(id) {
+  if (!id) return;
+  const notification = document.getElementById(id);
+  if (notification) {
+    notification.style.opacity = '0';
+    notification.style.transform = 'translateX(20px)';
+    setTimeout(() => notification.remove(), 300);
+  }
 }
 
 // Shows a notification with an optional progress bar
@@ -909,64 +1275,86 @@ function toggleDarkMode() {
 // Updates the UI theme
 function updateTheme() {
   const ui = document.getElementById("yt-playlist-cleaner-ui");
+  const content = document.getElementById("cleaner-content");
   if (!ui) return;
 
   if (config.darkMode) {
-    ui.style.cssText += `
-      background-color: #232323;
-      color: #ffffff;
-      border-color: #444444;
-    `;
+    // Dark mode styles
+    ui.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #222222 100%)';
+    ui.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)';
+    
+    if (content) {
+      content.style.background = '#1a1a1a';
+    }
 
     // Update input fields
     ui.querySelectorAll('input').forEach(input => {
-      input.style.cssText += `
-        background-color: #333333;
-        color: #ffffff;
-        border: 1px solid #444444;
-      `;
+      input.style.background = '#2a2a2a';
+      input.style.color = '#ffffff';
+      input.style.border = '1px solid #404040';
     });
 
-    // Update buttons
-    ui.querySelectorAll('button').forEach(button => {
-      if (!button.style.backgroundColor.includes('rgb')) {  // Don't override colored buttons
-        button.style.backgroundColor = '#444444';
-      }
+    // Update labels
+    ui.querySelectorAll('label').forEach(label => {
+      label.style.color = '#b0b0b0';
     });
 
-    // Update notifications
-    const notificationContainer = document.getElementById('yt-cleanser-notifications');
-    if (notificationContainer) {
-      notificationContainer.querySelectorAll('.notification').forEach(notification => {
-        if (!notification.classList.contains('info') &&
-            !notification.classList.contains('warning') &&
-            !notification.classList.contains('error')) {
-          notification.style.backgroundColor = '#333333';
-        }
-      });
+    // Update status text
+    const statusText = ui.querySelector('.status-text');
+    if (statusText) statusText.style.color = '#b0b0b0';
+    
+    const countdownText = ui.querySelector('.countdown-text');
+    if (countdownText) countdownText.style.color = '#808080';
+
+    // Update progress bar background
+    const progressBar = ui.querySelector('.progress-fill')?.parentElement;
+    if (progressBar) progressBar.style.background = '#333333';
+
+    // Update advanced options border
+    const advOptions = ui.querySelector('div[style*="border: 1px solid"]');
+    if (advOptions) {
+      advOptions.style.borderColor = '#404040';
+      advOptions.style.background = '#222222';
     }
+
   } else {
-    ui.style.cssText += `
-      background-color: #ffffff;
-      color: #000000;
-      border-color: #cccccc;
-    `;
+    // Light mode styles
+    ui.style.background = 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)';
+    ui.style.boxShadow = '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)';
+    
+    if (content) {
+      content.style.background = 'transparent';
+    }
 
     // Reset input fields
     ui.querySelectorAll('input').forEach(input => {
-      input.style.cssText += `
-        background-color: #ffffff;
-        color: #000000;
-        border: 1px solid #cccccc;
-      `;
+      input.style.background = '#ffffff';
+      input.style.color = '#030303';
+      input.style.border = '1px solid #e0e0e0';
     });
 
-    // Reset buttons
-    ui.querySelectorAll('button').forEach(button => {
-      if (!button.style.backgroundColor.includes('rgb')) {  // Don't override colored buttons
-        button.style.backgroundColor = '#f0f0f0';
-      }
+    // Reset labels
+    ui.querySelectorAll('label').forEach(label => {
+      label.style.color = '#606060';
     });
+
+    // Reset status text
+    const statusText = ui.querySelector('.status-text');
+    if (statusText) statusText.style.color = '#606060';
+    
+    const countdownText = ui.querySelector('.countdown-text');
+    if (countdownText) countdownText.style.color = '#909090';
+
+    // Reset progress bar background
+    const progressBar = ui.querySelector('.progress-fill')?.parentElement;
+    if (progressBar) progressBar.style.background = '#e8e8e8';
+
+    // Reset advanced options
+    const advOptions = ui.querySelector('div[style*="border: 1px solid"]');
+    if (advOptions) {
+      advOptions.style.borderColor = '#ccc';
+      advOptions.style.background = 'transparent';
+    }
   }
 
   // Save the theme preference

@@ -8,19 +8,40 @@ The development of this script was inspired by [@colejd's work](https://gist.git
 
 This script has been further optimised with the help of Claude AI.
 
+## Screenshot
+
+![image](https://github.com/user-attachments/assets/93373b7a-6087-4336-b87d-86066c73c498)
+
 ## Installation
 
 1. Install a userscript manager like Tampermonkey or Greasemonkey in your browser.
 2. Click on the following link to install the script: [Install YouTube Playlist Cleaner](https://github.com/John-nata/YT-Playlist-Cleaner/raw/main/YT-playlist-cleaner.js)
 3. The script will automatically run when you visit a YouTube playlist page.
 
-## What's New in v1.6 
+## What's New in v2.0 (09/02/2026)
 
-### Fixes
+### ✨ New Features
 
-- **Chrome Trusted Types Policy Issue** Credits to [@f0x4](https://github.com/f0x4) for the [fix](https://github.com/John-nata/YT-Playlist-Cleaner/issues/2)   
-- **Pause/Resume Logic Update**  
-- **Logging Improvements**  
+-   **Unavailable video filter**  — Only delete private and deleted videos
+-   **Age-based deletion**  — Skip videos added within the last N days
+-   **17 new language translations**  — Swedish, Danish, Norwegian, Finnish, Ukrainian, Romanian, Slovak, Bulgarian, Croatian, Greek, Catalan, Hindi, Thai, Vietnamese, Indonesian, Malay, Filipino
+-   **Persistent pause notification**  — Stays visble until Resume is clicked
+
+### 🎨 Complete UI Redesign
+
+-   **Modern interface**  with YouTube-native + Material Design blend
+-   **Status badge**  showing real-time state (Ready → Running → Paused → Done)
+-   **Hover lift effect**  with subtle red glow shadow
+-   **Proper theme colors**  for all elements (inputs, labels, progress bar)
+-   **Sun/moon icons**  that swap on toggle (🌙 ↔ ☀️)
+-   **Glassmorphism-ish badge**  
+
+### 🔧 Bug Fixes
+
+-   **Fixed pause/resume logic**  — Proper state machine with corrct transition logging
+-   **Fixed completion message**  — Now correctly shows "X of Y target deleted"
+-   **Persistent pause notification**  — Stays visible until you click Resume
+-   **Fixed Polish, Turkish, Czech translations**  that were incomplete
 
 Full changelog [here](#changelog) 
 
@@ -31,33 +52,17 @@ Full changelog [here](#changelog)
 - Automatically remove videos from YouTube playlists.
 - Customisable settings for deletion criteria.
 - Auto-scroll functionality to process large playlists.
-- Improved user interface with progress bar and status updates.
 - Pause and resume functionality.
 - Configurable delays between deletions to avoid rate limiting.
-- First-time welcome message for new users.
-- Usage statistics to track your progress.
-- Dark mode for a comfortable experience.
-
-## Screenshot
-
-![image](https://github.com/user-attachments/assets/965f8ed3-d66e-43d7-9240-f6b934d3485c)
-
+- Dark mode for a cmfortable experience.
 
 ## Usage
 
 1. Navigate to any YouTube playlist page.
-2. The script will add a "Cleanse Playlist" button to the page.
-3. Click the button to open the settings panel.
-4. Adjust the settings as desired:
- - Threshold: Minimum watched percentage for deletion.
- - Max Delete: Maximum number of videos to delete.
- - Delete Private: Choose whether to delete private videos.
- - Pause After: Number of deletions before pausing.
- - Pause Duration: Duration of pause in seconds.
- - Auto-scroll Every: Frequency of auto-scrolling.
- - Min/Max Delay: Range for random delay between deletions.
-5. Click "Start Cleansing" to begin the process.
-6. Use the "Pause" and "Resume" buttons to control the cleansing process as needed.
+2. The script will add a "YT Playlist Cleaner" window to the page.
+3. Adjust the settings as desired
+4. Click "Start Deleting" to begin the process.
+5. Use the "Pause" and "Resume" buttons to control the cleansing process as needed.
 
 ## Configuration
 
@@ -65,18 +70,57 @@ Customise the script's default behaviour by modifying the `config` object in the
 
 ```javascript
 let config = {
-  threshold: 0,
-  minDelay: 2,
-  maxDelay: 7,
-  maxDelete: Infinity,
-  pauseAfter: Infinity,
-  pauseDuration: 60,
-  deletePrivate: false,
-  shuffleDelete: false,
-  autoScrollEvery: 10,
+  threshold: 0,              // Min watched % to delete (0 = any)
+  minDelay: 3,               // Min seconds between deletions
+  maxDelay: 7,               // Max seconds between deletions
+  maxDelete: 200,            // Max videos to delete per session
+  pauseAfter: 100,           // Pause after N deletions
+  pauseDuration: 60,         // Pause duration in seconds
+  deletePrivate: false,      // Include private videos
+  shuffleDelete: false,      // Randomize deletion order
+  autoScrollEvery: 10,       // Auto-scroll every N deletions
+  darkMode: false,           // Dark theme
+  onlyUnavailable: false,    // NEW: Only delete [Private]/[Deleted] videos
+  deleteOlderThanDays: 0,    // NEW: Skip videos newer than N days (0 = off)
 };
 ```
+
 ## Changelog 
+
+v2.0.0 (2026-02-09)
+
+### ✨ New Features
+
+-   **Unavailable video filter**  — Only delete [Private video] or [Deleted video] entries
+-   **Age-based deletion**  — Skip videos added within the last N days
+-   **17 new language translations**  — 🇸🇪 Swedish, 🇩🇰 Danish, 🇳🇴 Norwegian, 🇫🇮 Finnish, 🇺🇦 Ukrainian, 🇷🇴 Romanian, 🇸🇰 Slovak, 🇧🇬 Bulgarian, 🇭🇷 Croatian, 🇬🇷 Greek, 🇪🇸 Catalan, 🇮🇳 Hindi, 🇹🇭 Thai, 🇻🇳 Vietnamese, 🇮🇩 Indonesian, 🇲🇾 Malay and 🇵🇭 Filipino
+
+### 🎨 UI/UX Improvements
+
+-   Complete redesign with YouTube/Material Design hybrid aesthetic
+-   Animated gradient header with color shifting
+-   Status badge with glassmorphism effect (Ready/Running/Paused/Done)
+-   Dark mode toggle moved to header with 🌙/☀️ icons
+-   Scrollable content area (max-height: 85vh)
+-   Hover elevation effect with red glow shadow
+-   Styled gradient progress bar
+-   Buttons with hover lift and shadow effects
+
+### 🐛 Bug Fixes
+
+-   Fixed completion message showing wrong video count
+-   Fixed skip notifications spamming the UI
+-   Fixed pause/resume state machine with proper logging
+-   Fixed dark mode not styling all elements correctly
+-   Fixed Polish, Turkish, Czech incomplete translations
+-   Fixed Chinese typo in translations
+
+### 🔧 Technical
+
+-   Added "skippedCount" state tracking
+-   Added "pauseNotificationId" for persistent notification management
+-   Skip reasons now log to console only via "originalLog"
+-   Progress bar now uses CSS width instead of "<progress>" element
 
 (1.6.0)
 

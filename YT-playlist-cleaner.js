@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         YT Playlist Cleaner 
-// @version      2.0
+// @version      2.0.1
 // @description  A handy tool to tidy up your YouTube playlists with custom settings and smart features
 // @author       John-nata
 // @match        http*://*.youtube.com/playlist*
@@ -173,22 +173,31 @@ const deleteButtonTexts = {
   tl: ["Tanggalin", "Alisin sa Panoorin sa ibang pagkakataon"],  // Filipino/Tagalog
 };
 
-// Waits for something to show up on the page
-function waitForElement(selector) {
-  return new Promise((resolve) => {
-    if (document.querySelector(selector)) {
-      return resolve(document.querySelector(selector));
+// Waits for something to show up on the page (with configurable timeout)
+function waitForElement(selector, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(selector);
+    if (existing) {
+      return resolve(existing);
     }
+
+    const timeoutId = setTimeout(() => {
+      observer.disconnect();
+      reject(new Error(`waitForElement: "${selector}" not found within ${timeout}ms`));
+    }, timeout);
 
     // Keep an eye out for when it appears
     const observer = new MutationObserver(() => {
-      if (document.querySelector(selector)) {
-        resolve(document.querySelector(selector));
+      const el = document.querySelector(selector);
+      if (el) {
+        clearTimeout(timeoutId);
         observer.disconnect();
+        resolve(el);
       }
     });
 
-    observer.observe(app, {
+    // Use document.documentElement for robust observation
+    observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
     });
@@ -228,13 +237,21 @@ function createFloatingUI() {
     overflow: hidden;
   `;
 
-  // Add hover effect for elevation
+  // Add hover effect for elevation (theme-aware)
   floatingUI.addEventListener('mouseenter', () => {
-    floatingUI.style.boxShadow = '0 16px 48px rgba(255,0,0,0.15), 0 8px 24px rgba(0,0,0,0.12)';
+    if (config.darkMode) {
+      floatingUI.style.boxShadow = '0 16px 48px rgba(255,0,0,0.2), 0 8px 24px rgba(0,0,0,0.4)';
+    } else {
+      floatingUI.style.boxShadow = '0 16px 48px rgba(255,0,0,0.15), 0 8px 24px rgba(0,0,0,0.12)';
+    }
     floatingUI.style.transform = 'translateY(-2px)';
   });
   floatingUI.addEventListener('mouseleave', () => {
-    floatingUI.style.boxShadow = '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)';
+    if (config.darkMode) {
+      floatingUI.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)';
+    } else {
+      floatingUI.style.boxShadow = '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)';
+    }
     floatingUI.style.transform = 'translateY(0)';
   });
 
@@ -565,6 +582,7 @@ function createInputContainer(labelText, id, type, value, min, max) {
   const input = document.createElement("input");
   input.type = type;
   input.id = id;
+  input.className = `cleaner-input cleaner-input-${id}`;
   input.value = value;
   input.min = min;
   input.max = max;
@@ -574,13 +592,20 @@ function createInputContainer(labelText, id, type, value, min, max) {
     border: 1px solid #e0e0e0;
     border-radius: 8px;
     font-size: 14px;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s;
     box-sizing: border-box;
-    &:focus {
-      border-color: #065fd4;
-      outline: none;
-    }
+    outline: none;
   `;
+
+  // Focus effect via JS (replaces invalid inline &:focus)
+  input.addEventListener('focus', () => {
+    input.style.borderColor = '#065fd4';
+    input.style.boxShadow = '0 0 0 2px rgba(6, 95, 212, 0.15)';
+  });
+  input.addEventListener('blur', () => {
+    input.style.borderColor = config.darkMode ? '#404040' : '#e0e0e0';
+    input.style.boxShadow = 'none';
+  });
 
   container.appendChild(label);
   container.appendChild(input);
@@ -814,7 +839,7 @@ async function cleanse(progressBar, statusText, countdownText) {
       originalLog(`[state] running → Continuing deletion (deleted: ${state.deletedCount}/${config.maxDelete})`);
     }
 
-    console.log(`${video.title} (${video.progress}%)`);
+    originalLog(`${video.title} (${video.progress}%)`);  // Log to console only, no notification
     state.currentVideo++;
 
     // Check all deletion criteria
@@ -826,26 +851,29 @@ async function cleanse(progressBar, statusText, countdownText) {
     const meetsAgeFilter = isVideoOldEnough(video);
 
     if (meetsThreshold && meetsPrivateFilter && meetsUnavailableFilter && meetsAgeFilter) {
-      console.log("  Deleting...");
-      await retry(() => deleteVideo(video, countdownText));
-      state.deletedCount++;
+      originalLog("  Deleting...");
+      const deleteSuccess = await retry(() => deleteVideo(video, countdownText));
+      if (deleteSuccess) {
+        state.deletedCount++;
+        state.consecutiveErrors = 0;
+      }
 
       // Check for automatic pause after N deletions
       if (state.deletedCount % config.pauseAfter === 0 && state.deletedCount < config.maxDelete) {
         state.pauseState = 'pausing';
         state.isAutoPaused = true;
-        console.log(`[state] pausing → Auto-pause triggered after ${config.pauseAfter} videos`);
+        originalLog(`[state] pausing → Auto-pause triggered after ${config.pauseAfter} videos`);
         
         state.pauseState = 'waiting';
-        console.log(`[state] waiting → Pausing for ${config.pauseDuration} seconds...`);
+        originalLog(`[state] waiting → Pausing for ${config.pauseDuration} seconds...`);
         await countdown(config.pauseDuration, countdownText);
         
         state.pauseState = 'resuming';
         state.isAutoPaused = false;
-        console.log(`[state] resuming → Pause duration complete, continuing deletion`);
+        originalLog(`[state] resuming → Pause duration complete, continuing deletion`);
         
         state.pauseState = 'running';
-        console.log(`[state] running → Resuming (deleted: ${state.deletedCount}/${config.maxDelete}, remaining videos in queue)`);
+        originalLog(`[state] running → Resuming (deleted: ${state.deletedCount}/${config.maxDelete}, remaining videos in queue)`);
       }
 
       if (state.deletedCount % config.autoScrollEvery === 0) {
@@ -890,11 +918,13 @@ async function cleanse(progressBar, statusText, countdownText) {
 }
 
 // Deletes a video from the playlist
+// Returns true on success, false on failure
 async function deleteVideo(video, countdownText) {
+  let success = false;
   try {
     video.menuButton.click();
 
-    const popup = await waitForElement("ytd-menu-popup-renderer");
+    const popup = await waitForElement("ytd-menu-popup-renderer", 5000);
 
     // Wait for the menu items to load
     await sleep(500);
@@ -910,25 +940,37 @@ async function deleteVideo(video, countdownText) {
     if (deleteButton) {
       deleteButton.click();
       state.consecutiveErrors = 0;
-      showNotification(`Removing video: ${video.title}`, 'info');
+      success = true;
+      originalLog(`  ✓ Removed: "${video.title.substring(0, 50)}"`);
     } else {
       state.consecutiveErrors++;
+      originalLog(`  ✗ Delete button not found for: "${video.title.substring(0, 50)}"`);
 
       if (state.consecutiveErrors >= 3) {
         const waitTime = Math.min(30 * state.consecutiveErrors, 300); // Max 5 minutes
-        showNotification(`Too many errors. Waiting ${waitTime} seconds...`, 'warning');
+        showNotification(`⚠ ${state.consecutiveErrors} consecutive errors. Cooling down ${waitTime}s...`, 'warning');
         await countdown(waitTime, countdownText);
       }
 
-      throw new Error('Delete button not found');
+      throw new Error(`Delete button not found (consecutive errors: ${state.consecutiveErrors})`);
     }
   } catch (error) {
-    console.error(`Error deleting video: ${error.message}`);
     state.lastErrorTime = Date.now();
+    if (error.message.includes('not found within')) {
+      // waitForElement timeout — menu never appeared
+      originalLog(`  ✗ Menu popup timed out for: "${video.title.substring(0, 50)}"`);
+      state.consecutiveErrors++;
+    } else if (!error.message.includes('Delete button not found')) {
+      // Unexpected error
+      originalLog(`  ✗ Unexpected error: ${error.message}`);
+      state.consecutiveErrors++;
+    }
   }
 
+  // Random delay always runs — even after failure — to respect rate limits
   const randomDelay = Math.floor(Math.random() * (config.maxDelay - config.minDelay + 1)) + config.minDelay;
   await countdown(randomDelay, countdownText);
+  return success;
 }
 
 // Add debouncing for scroll events
@@ -1139,10 +1181,10 @@ function showNotification(message, type = 'info', duration = 5000) {
     padding: 0 4px;
     opacity: 0.7;
     transition: opacity 0.2s;
-    &:hover {
-      opacity: 1;
-    }
   `;
+  // Hover effect via JS (replaces invalid inline &:hover)
+  closeButton.addEventListener('mouseenter', () => { closeButton.style.opacity = '1'; });
+  closeButton.addEventListener('mouseleave', () => { closeButton.style.opacity = '0.7'; });
 
   closeButton.onclick = () => {
     notification.style.opacity = '0';
@@ -1377,15 +1419,19 @@ function loadConfig() {
 // Call loadConfig() when script starts
 loadConfig();
 
-// Retry mechanism for failed operations
+// Retry mechanism for failed operations with exponential backoff
 async function retry(operation, maxAttempts = 3, delay = 1000) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             return await operation();
         } catch (error) {
-            if (attempt === maxAttempts) throw error;
-            await sleep(delay * attempt);
-            showNotification(`Retrying operation (${attempt}/${maxAttempts})...`, 'warning');
+            if (attempt === maxAttempts) {
+              originalLog(`[retry] All ${maxAttempts} attempts failed: ${error.message}`);
+              return false; // Signal failure instead of throwing
+            }
+            const backoffDelay = delay * attempt;
+            originalLog(`[retry] Attempt ${attempt}/${maxAttempts} failed: ${error.message}. Retrying in ${backoffDelay}ms...`);
+            await sleep(backoffDelay);
         }
     }
 }

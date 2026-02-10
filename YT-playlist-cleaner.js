@@ -932,41 +932,23 @@ async function cleanse(progressBar, statusText, countdownText) {
     const willDelete = meetsThreshold && meetsPrivateFilter && meetsUnavailableFilter && meetsAgeFilter;
 
     if (willDelete) {
-      // Build reason string - ALWAYS show why video is being deleted
-      let reasons = [];
-
-      // Show watch progress (always)
-      reasons.push(`${video.progress}% watched`);
-
-      // Show if threshold filter is active
-      if (config.threshold > 0) {
-        reasons.push(`threshold: >=${config.threshold}%`);
-      }
-
-      // Show if unavailable filter is active
-      if (config.onlyUnavailable) {
-        reasons.push(video.isUnavailable ? 'is unavailable ✓' : 'is unavailable?');
-      }
-
-      // Show if private filter is relevant
-      if (video.isPrivate) {
-        reasons.push('is private');
-      }
-
-      // Show if age filter is active
-      if (config.deleteOlderThanDays > 0 && video.dateAdded) {
-        const ageInDays = Math.floor((Date.now() - video.dateAdded) / (1000 * 60 * 60 * 24));
-        reasons.push(`${ageInDays} days old (need >${config.deleteOlderThanDays})`);
-      }
-
-      const reasonStr = ` [${reasons.join(', ')}]`;
-      originalLog(`→ Will delete #${state.deletedCount + 1}: "${video.title.substring(0, 40)}..."${reasonStr}`);
-
       try {
         await retry(() => deleteVideo(video, countdownText));
         state.deletedCount++;
       } catch (error) {
-        originalLog(`✗ Failed to delete after retries: ${error.message}`);
+        // Only log detailed info on error
+        let reasons = [];
+        reasons.push(`${video.progress}% watched`);
+        if (config.threshold > 0) reasons.push(`threshold: >=${config.threshold}%`);
+        if (config.onlyUnavailable) reasons.push(video.isUnavailable ? 'is unavailable ✓' : 'is unavailable?');
+        if (video.isPrivate) reasons.push('is private');
+        if (config.deleteOlderThanDays > 0 && video.dateAdded) {
+          const ageInDays = Math.floor((Date.now() - video.dateAdded) / (1000 * 60 * 60 * 24));
+          reasons.push(`${ageInDays} days old (need >${config.deleteOlderThanDays})`);
+        }
+        const reasonStr = ` [${reasons.join(', ')}]`;
+        originalLog(`✗ Failed to delete #${state.deletedCount + 1}: "${video.title.substring(0, 40)}..."${reasonStr}`);
+        originalLog(`   Error: ${error.message}`);
         continue;
       }
 
@@ -989,20 +971,8 @@ async function cleanse(progressBar, statusText, countdownText) {
         await autoScroll();
       }
     } else {
-      // Skip - log reason to console
+      // Skip silently - user doesn't need to see every skipped video
       state.skippedCount++;
-      let skipReason = [];
-      if (!meetsThreshold) skipReason.push(`${video.progress}% watched (need >=${config.threshold}%)`);
-      if (!meetsPrivateFilter) skipReason.push('is private (filter disabled)');
-      if (!meetsUnavailableFilter) skipReason.push('is available (only unavailable mode)');
-      if (!meetsAgeFilter) skipReason.push(`too recent (need >${config.deleteOlderThanDays} days)`);
-
-      // Only log first 5 skipped videos to avoid spam
-      if (state.skippedCount <= 5) {
-        originalLog(`⊘ Skip #${state.skippedCount}: "${video.title.substring(0, 40)}..." [${skipReason.join(', ')}]`);
-      } else if (state.skippedCount === 6) {
-        originalLog(`⊘ (Further skips will not be logged to keep console clean...)`);
-      }
     }
 
     // Update progress bar (now using percentage-based width)
@@ -1070,15 +1040,6 @@ async function deleteVideo(video, countdownText) {
 
     const menuItems = Array.from(popup.querySelectorAll("ytd-menu-service-item-renderer"));
 
-    // Debug: Show all menu items for first failed delete
-    if (state.consecutiveErrors === 0) {
-      originalLog(`[deleteVideo] Menu has ${menuItems.length} items:`);
-      menuItems.forEach((item, idx) => {
-        const text = item.textContent.toLowerCase().trim().replace(/\s+/g, ' ');
-        originalLog(`  [${idx}] "${text.substring(0, 80)}"`);
-      });
-    }
-
     const deleteButton = menuItems.find((item) => {
       // Get text content and normalize it
       const text = item.textContent.toLowerCase().trim().replace(/\s+/g, ' ');
@@ -1130,10 +1091,16 @@ async function deleteVideo(video, countdownText) {
     if (deleteButton) {
       deleteButton.click();
       state.consecutiveErrors = 0;
-      originalLog(`✓ Deleted: ${video.title.substring(0, 40)}...`);
       success = true;
     } else {
+      // Only log menu details when delete button is NOT found
       originalLog(`✗ Delete button not found for: ${video.title.substring(0, 40)}...`);
+      originalLog(`[deleteVideo ERROR] Menu has ${menuItems.length} items:`);
+      menuItems.forEach((item, idx) => {
+        const text = item.textContent.toLowerCase().trim().replace(/\s+/g, ' ');
+        originalLog(`  [${idx}] "${text.substring(0, 80)}"`);
+      });
+
       state.consecutiveErrors++;
 
       if (state.consecutiveErrors >= 3) {

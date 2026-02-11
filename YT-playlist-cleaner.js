@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         YT Playlist Cleaner 
-// @version      2.0.1
+// @version      2.0.2
 // @description  A handy tool to tidy up your YouTube playlists with custom settings and smart features
 // @author       John-nata
 // @match        http*://*.youtube.com/playlist*
@@ -17,16 +17,15 @@ let config = {
   maxDelete: 200,
   pauseAfter: 100,
   pauseDuration: 60,
-  deletePrivate: false,
   shuffleDelete: false,
   autoScrollEvery: 10,
   darkMode: false,
   maxBatchSize: 10,
   batchPauseTime: 50,
   uiUpdateInterval: 100,
-  // New feature: only delete unavailable (private/deleted) videos
+  // Only delete unavailable (private/deleted) videos
   onlyUnavailable: false,
-  // New feature: skip videos added within last N days (0 = disabled)
+  // Skip videos added within last N days (0 = disabled)
   deleteOlderThanDays: 0,
 };
 
@@ -503,9 +502,11 @@ function createFloatingUI() {
 // Makes the interface draggable around the screen
 function makeDraggable(element, handle) {
   let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-  handle.onmousedown = dragMouseDown;
+  handle.addEventListener('mousedown', dragMouseDown);
 
   function dragMouseDown(e) {
+    // Don't start drag if clicking interactive elements inside the handle
+    if (e.target.closest('button, input, select, a')) return;
     e = e || window.event;
     e.preventDefault();
     pos3 = e.clientX;
@@ -545,16 +546,60 @@ function createAdvancedOptions() {
   // New feature: age-based deletion (0 = disabled)
   const ageFilterContainer = createInputContainer("Delete videos older than (days, 0=off):", "deleteOlderThanDays", "number", config.deleteOlderThanDays, 0, 9999);
 
-  const deletePrivateCheckbox = createCheckbox("Delete private videos", "deletePrivate", config.deletePrivate);
   const shuffleDeleteCheckbox = createCheckbox("Shuffle delete order", "shuffleDelete", config.shuffleDelete);
-  // New feature: only delete unavailable (private/deleted) videos
+  // Only delete unavailable (private/deleted) videos
   const onlyUnavailableCheckbox = createCheckbox("Delete only unavailable videos (deleted/private)", "onlyUnavailable", config.onlyUnavailable);
+
+  // Add tooltip to unavailable checkbox
+  const tooltipWrapper = document.createElement("span");
+  tooltipWrapper.style.cssText = `position: relative; display: inline-block; margin-left: 6px; cursor: help;`;
+
+  const tooltipIcon = document.createElement("span");
+  tooltipIcon.textContent = "ℹ️";
+  tooltipIcon.style.cssText = `font-size: 13px; opacity: 0.7; transition: opacity 0.2s;`;
+
+  const tooltipText = document.createElement("div");
+  tooltipText.textContent = 'You must click the 3-dots button (⋮) in the playlist sidebar and select "Show unavailable videos" for this to work!';
+  tooltipText.style.cssText = `
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: 130%;
+    left: 50%;
+    transform: translateX(-80%);
+    background: #333;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    width: 220px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    transition: opacity 0.2s, visibility 0.2s;
+    z-index: 10001;
+    pointer-events: none;
+    line-height: 1.4;
+  `;
+
+  tooltipWrapper.addEventListener("mouseenter", () => {
+    tooltipText.style.visibility = "visible";
+    tooltipText.style.opacity = "1";
+    tooltipIcon.style.opacity = "1";
+  });
+  tooltipWrapper.addEventListener("mouseleave", () => {
+    tooltipText.style.visibility = "hidden";
+    tooltipText.style.opacity = "0";
+    tooltipIcon.style.opacity = "0.7";
+  });
+
+  tooltipWrapper.appendChild(tooltipIcon);
+  tooltipWrapper.appendChild(tooltipText);
+  onlyUnavailableCheckbox.appendChild(tooltipWrapper);
 
   container.appendChild(thresholdContainer);
   container.appendChild(pauseDurationContainer);
   container.appendChild(autoScrollContainer);
   container.appendChild(ageFilterContainer);
-  container.appendChild(deletePrivateCheckbox);
   container.appendChild(shuffleDeleteCheckbox);
   container.appendChild(onlyUnavailableCheckbox);
 
@@ -678,7 +723,6 @@ function updateConfigFromInputs() {
   config.pauseAfter = parseInt(document.getElementById("pauseAfter").value, 10);
   config.pauseDuration = parseInt(document.getElementById("pauseDuration").value, 10);
   config.autoScrollEvery = parseInt(document.getElementById("autoScrollEvery").value, 10);
-  config.deletePrivate = document.getElementById("deletePrivate").checked;
   config.shuffleDelete = document.getElementById("shuffleDelete").checked;
   // New options
   config.onlyUnavailable = document.getElementById("onlyUnavailable").checked;
@@ -735,7 +779,6 @@ function* getVideos() {
       progress: progressEl?.data?.percentDurationWatched ?? 0,
       menu: menuEl,
       menuButton: menuEl.querySelector("yt-icon-button#button"),
-      isPrivate: badgeText === "private",
       isUnavailable: isUnavailable,
       dateAdded: dateAdded
     };
@@ -811,89 +854,116 @@ async function cleanse(progressBar, statusText, countdownText) {
   console.log("Initial scroll completed. Waiting for 5 seconds...");
   await countdown(5, countdownText);
 
-  let batchSize = 0;
-  for (const video of getVideos()) {
-    if (state.deletedCount >= config.maxDelete) {
-      console.log(`[state] Reached maxDelete limit (${config.maxDelete}), stopping`);
-      break;
-    }
+  // Outer loop: re-query DOM after each pass to catch newly loaded videos
+  let emptyPasses = 0;
+  const MAX_EMPTY_PASSES = 3;  // Give up after 3 consecutive passes with no videos
 
-    // Process in batches to prevent UI freezes
-    if (++batchSize >= 10) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-      batchSize = 0;
-    }
+  while (state.deletedCount < config.maxDelete) {
+    let processedAny = false;
+    let batchSize = 0;
 
-    // Handle manual pause with state logging
-    while (state.isPaused) {
-      if (state.pauseState !== 'pausing') {
-        state.pauseState = 'pausing';
-        originalLog(`[state] pausing → User paused deletion`);
-      }
-      await sleep(1000);
-    }
-    if (state.pauseState === 'pausing') {
-      state.pauseState = 'resuming';
-      originalLog(`[state] resuming → User resumed deletion`);
-      state.pauseState = 'running';
-      originalLog(`[state] running → Continuing deletion (deleted: ${state.deletedCount}/${config.maxDelete})`);
-    }
-
-    originalLog(`${video.title} (${video.progress}%)`);  // Log to console only, no notification
-    state.currentVideo++;
-
-    // Check all deletion criteria
-    const meetsThreshold = video.progress >= config.threshold;
-    const meetsPrivateFilter = config.deletePrivate || !video.isPrivate;
-    // New: unavailable filter - if enabled, only delete unavailable videos
-    const meetsUnavailableFilter = !config.onlyUnavailable || video.isUnavailable;
-    // New: age filter - only delete videos older than specified days
-    const meetsAgeFilter = isVideoOldEnough(video);
-
-    if (meetsThreshold && meetsPrivateFilter && meetsUnavailableFilter && meetsAgeFilter) {
-      originalLog("  Deleting...");
-      const deleteSuccess = await retry(() => deleteVideo(video, countdownText));
-      if (deleteSuccess) {
-        state.deletedCount++;
-        state.consecutiveErrors = 0;
+    for (const video of getVideos()) {
+      if (state.deletedCount >= config.maxDelete) {
+        originalLog(`[state] Reached maxDelete limit (${config.maxDelete}), stopping`);
+        break;
       }
 
-      // Check for automatic pause after N deletions
-      if (state.deletedCount % config.pauseAfter === 0 && state.deletedCount < config.maxDelete) {
-        state.pauseState = 'pausing';
-        state.isAutoPaused = true;
-        originalLog(`[state] pausing → Auto-pause triggered after ${config.pauseAfter} videos`);
-        
-        state.pauseState = 'waiting';
-        originalLog(`[state] waiting → Pausing for ${config.pauseDuration} seconds...`);
-        await countdown(config.pauseDuration, countdownText);
-        
+      processedAny = true;
+
+      // Process in batches to prevent UI freezes
+      if (++batchSize >= 10) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        batchSize = 0;
+      }
+
+      // Handle manual pause with state logging
+      while (state.isPaused) {
+        if (state.pauseState !== 'pausing') {
+          state.pauseState = 'pausing';
+          originalLog(`[state] pausing → User paused deletion`);
+        }
+        await sleep(1000);
+      }
+      if (state.pauseState === 'pausing') {
         state.pauseState = 'resuming';
-        state.isAutoPaused = false;
-        originalLog(`[state] resuming → Pause duration complete, continuing deletion`);
-        
+        originalLog(`[state] resuming → User resumed deletion`);
         state.pauseState = 'running';
-        originalLog(`[state] running → Resuming (deleted: ${state.deletedCount}/${config.maxDelete}, remaining videos in queue)`);
+        originalLog(`[state] running → Continuing deletion (deleted: ${state.deletedCount}/${config.maxDelete})`);
       }
 
-      if (state.deletedCount % config.autoScrollEvery === 0) {
-        await autoScroll();
+      originalLog(`${video.title} (${video.progress}%)`);  // Log to console only, no notification
+      state.currentVideo++;
+
+      // Check all deletion criteria
+      const meetsThreshold = video.progress >= config.threshold;
+      // Unavailable filter - if enabled, only delete unavailable videos
+      const meetsUnavailableFilter = !config.onlyUnavailable || video.isUnavailable;
+      // Age filter - only delete videos older than specified days
+      const meetsAgeFilter = isVideoOldEnough(video);
+
+      if (meetsThreshold && meetsUnavailableFilter && meetsAgeFilter) {
+        originalLog("  Deleting...");
+        const deleteSuccess = await retry(() => deleteVideo(video, countdownText));
+        if (deleteSuccess) {
+          state.deletedCount++;
+          state.consecutiveErrors = 0;
+        }
+
+        // Check for automatic pause after N deletions
+        if (state.deletedCount % config.pauseAfter === 0 && state.deletedCount < config.maxDelete) {
+          state.pauseState = 'pausing';
+          state.isAutoPaused = true;
+          originalLog(`[state] pausing → Auto-pause triggered after ${config.pauseAfter} videos`);
+          
+          state.pauseState = 'waiting';
+          originalLog(`[state] waiting → Pausing for ${config.pauseDuration} seconds...`);
+          await countdown(config.pauseDuration, countdownText);
+          
+          state.pauseState = 'resuming';
+          state.isAutoPaused = false;
+          originalLog(`[state] resuming → Pause duration complete, continuing deletion`);
+          
+          state.pauseState = 'running';
+          originalLog(`[state] running → Resuming (deleted: ${state.deletedCount}/${config.maxDelete}, remaining videos in queue)`);
+        }
+
+        if (state.deletedCount % config.autoScrollEvery === 0) {
+          await autoScroll();
+        }
+      } else {
+        // Skip silently - only log to console, not notifications
+        state.skippedCount++;
+        let skipReason = [];
+        if (!meetsThreshold) skipReason.push(`threshold not met`);
+        if (!meetsUnavailableFilter) skipReason.push('not unavailable');
+        if (!meetsAgeFilter) skipReason.push(`too recent`);
+        originalLog(`  Skipping "${video.title.substring(0, 30)}...": ${skipReason.join(', ')}`);
+      }
+
+      // Update progress bar (now using percentage-based width)
+      const progressPercent = (state.deletedCount / config.maxDelete) * 100;
+      progressBar.style.width = `${Math.min(progressPercent, 100)}%`;
+      statusText.textContent = `Deleted: ${state.deletedCount} / ${config.maxDelete} target`;
+    }
+
+    // After processing all currently loaded videos, try to load more
+    if (state.deletedCount >= config.maxDelete) break;
+
+    if (!processedAny) {
+      emptyPasses++;
+      originalLog(`[state] No videos found in pass (attempt ${emptyPasses}/${MAX_EMPTY_PASSES}). Scrolling to load more...`);
+      if (emptyPasses >= MAX_EMPTY_PASSES) {
+        originalLog(`[state] No more videos available after ${MAX_EMPTY_PASSES} attempts. Stopping.`);
+        break;
       }
     } else {
-      // Skip silently - only log to console, not notifications
-      state.skippedCount++;
-      let skipReason = [];
-      if (!meetsThreshold) skipReason.push(`threshold not met`);
-      if (!meetsPrivateFilter) skipReason.push('private video');
-      if (!meetsUnavailableFilter) skipReason.push('not unavailable');
-      if (!meetsAgeFilter) skipReason.push(`too recent`);
-      originalLog(`  Skipping "${video.title.substring(0, 30)}...": ${skipReason.join(', ')}`);
+      emptyPasses = 0;  // Reset counter on successful pass
     }
 
-    // Update progress bar (now using percentage-based width)
-    const progressPercent = (state.deletedCount / config.maxDelete) * 100;
-    progressBar.style.width = `${Math.min(progressPercent, 100)}%`;
-    statusText.textContent = `Deleted: ${state.deletedCount} / ${config.maxDelete} target`;
+    // Auto-scroll to load more videos from YouTube's lazy loader
+    await autoScroll();
+    originalLog(`[state] Re-scanning for more videos (deleted so far: ${state.deletedCount}/${config.maxDelete})...`);
+    await sleep(2000);  // Wait for YouTube to load new items
   }
 
   // Log skip summary once at end (not as notification)
@@ -911,8 +981,7 @@ async function cleanse(progressBar, statusText, countdownText) {
   const endTime = Date.now();
   const duration = Math.round((endTime - state.startTime) / 1000);
   console.log(`Done! Deleted ${state.deletedCount} videos in ${duration} seconds`);
-  statusText.textContent = `✓ Completed: ${state.deletedCount} of ${config.maxDelete} target deleted (${state.totalVideos} in playlist)`;
-
+  statusText.textContent = `✓ Finished: ${state.deletedCount}/${config.maxDelete} videos deleted (${state.totalVideos} scanned)`;
   showSummaryNotification(state.totalVideos, state.deletedCount, state.skippedCount, duration);
   updateStatistics(state.deletedCount, duration);
 }

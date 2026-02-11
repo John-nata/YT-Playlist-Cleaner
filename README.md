@@ -87,6 +87,26 @@ let config = {
 
 ## Changelog 
 
+v2.0.2 (11/02/2026)
+### 🐛 Bug Fixes
+-   Fixed Early Stopping: Solved a critical issue where the script would stop after processing the first batch of videos due to YouTube's lazy loading. The script now intelligently scrolls and re-scans the playlist until the full deletion target is met.
+-   Fixed Dark Mode Button: Resolved a conflict between the drag-and-drop system and the header buttons, which caused the Dark Mode toggle to be unresponsive or require over 3 clicks for some users.
+
+### ✨ Improvements
+-   Better Unavailable Video Handling: Removed the unreliable "Delete private videos" legacy option. Users should now use the "Delete only unavailable videos" filter, which covers both private and deleted videos accurately.
+-   New Tooltip: Added a helper icon (ℹ️) next to the "Delete unavailable" option to remind users that they must enable "Show unavailable videos" in the YouTube playlist sidebar for the feature to detect them.
+
+v2.0.1 (10/02/2026) (based on @zorak1103's commit)
+
+### 🐛 Bug Fixes
+-   Notification Spam: Suppressed video progress logs and auto-pause messages (console-only until next update)
+-   waitForElement Crash: Fixed undefined `app` variable; added 5s timeout to prevent infinite waiting
+
+### ⚡ Improvements
+-   Error Handling: `deleteVideo` now distinguishes menu timeout vs. missing button; increments count only on success    
+-   CSS/Input: Replaced invalid inline pseudo-classes with JS event listeners; added specific class names (e.g., `cleaner-input-threshold`)    
+-   Logging: Retry/status logs moved to console with ✓/✗ indicators
+
 v2.0.0 (2026-02-09)
 
 ### ✨ New Features
@@ -122,7 +142,7 @@ v2.0.0 (2026-02-09)
 -   Skip reasons now log to console only via "originalLog"
 -   Progress bar now uses CSS width instead of "<progress>" element
 
-(1.6.0)
+v1.6.0
 
 ### 🪛 Fixes
 
@@ -134,7 +154,7 @@ v2.0.0 (2026-02-09)
  - Updated outdated logic for the pause/resume functionality to ensure smoother playlist management.
  - Enhanced logging for better debugging and user feedback during script execution.
 
-(1.2.0 => 1.5.1)
+v1.2.0 => v1.5.1
 
 ### 🔧 Improvements
 

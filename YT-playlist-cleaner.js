@@ -1,28 +1,25 @@
 // ==UserScript==
-// @name         YT Playlist Cleaner 
-// @version      2.0.2
-// @description  A handy tool to tidy up your YouTube playlists with custom settings and smart features
-// @author       John-nata
-// @match        http*://*.youtube.com/playlist*
-// @match        http*://youtube.com/playlist*
-// @run-at       document-idle
-// @homepageURL  https://github.com/John-nata/YT-Playlist-Cleaner
+// @name YT Playlist Cleaner
+// @version 2.0.4
+// @description A handy tool to tidy up your YouTube playlists with custom settings and smart features
+// @author John-nata
+// @match http*://*.youtube.com/playlist*
+// @match http*://youtube.com/playlist*
+// @run-at document-idle
+// @homepageURL https://github.com/John-nata/YT-Playlist-Cleaner
 // ==/UserScript==
 
 // Main settings for the cleaner
 let config = {
   threshold: 0,
-  minDelay: 3,
-  maxDelay: 7,
-  maxDelete: 200,
+  minDelay: 2,
+  maxDelay: 12,
+  maxDelete: 400,
   pauseAfter: 100,
   pauseDuration: 60,
   shuffleDelete: false,
-  autoScrollEvery: 10,
+  autoScrollEvery: 25,
   darkMode: false,
-  maxBatchSize: 10,
-  batchPauseTime: 50,
-  uiUpdateInterval: 100,
   // Only delete unavailable (private/deleted) videos
   onlyUnavailable: false,
   // Skip videos added within last N days (0 = disabled)
@@ -34,11 +31,11 @@ let state = {
   deletedCount: 0,
   totalVideos: 0,
   currentVideo: 0,
-  skippedCount: 0,  // Track skipped videos for batch logging
+  skippedCount: 0,
   isPaused: false,
   isAutoPaused: false,
   pauseState: 'running',
-  pauseNotificationId: null,  // Reference to persistent pause notification
+  pauseNotificationId: null,
   startTime: null,
   consecutiveErrors: 0,
   lastErrorTime: null,
@@ -50,6 +47,11 @@ let state = {
   }
 };
 
+// Store original console methods to prevent infinite recursion
+const originalLog = console.log.bind(console);
+const originalWarn = console.warn.bind(console);
+const originalError = console.error.bind(console);
+
 // Check if it's first time and show welcome message
 if (!localStorage.getItem('ytPlaylistCleanerFirstTime')) {
   window.addEventListener('load', () => {
@@ -59,14 +61,16 @@ if (!localStorage.getItem('ytPlaylistCleanerFirstTime')) {
 
 // Add Trusted Types policy for innerHTML safety
 if (window.trustedTypes && window.trustedTypes.createPolicy) {
-    window.trustedTypes.createPolicy('default', {
+  try {
+    window.trustedTypes.createPolicy('ytPlaylistCleaner', {
       createHTML: (string) => string
     });
+  } catch (e) {
+    // Policy already exists, ignore
   }
+}
 
-// Add this function
 function showFirstTimeMessage() {
-  // Create modal container
   const modal = document.createElement('div');
   modal.style.cssText = `
     position: fixed;
@@ -81,7 +85,6 @@ function showFirstTimeMessage() {
     z-index: 99999;
   `;
 
-  // Create modal content
   const content = document.createElement('div');
   content.style.cssText = `
     background: white;
@@ -92,16 +95,17 @@ function showFirstTimeMessage() {
     font-family: 'YouTube Sans', Roboto, Arial, sans-serif;
     box-shadow: 0 4px 24px rgba(0,0,0,0.2);
   `;
-
   content.innerHTML = `
     <h2 style="margin: 0 0 24px 0; color: #030303; font-size: 32px;">G'day! 👋</h2>
     <p style="margin: 0 0 20px 0; color: #606060; line-height: 1.6; font-size: 18px;">
       Thanks heaps for using YouTube Playlist Cleaner!
     </p>
     <p style="margin: 0 0 32px 0; color: #606060; line-height: 1.6; font-size: 18px;">
-      <strong>Pro tip:</strong> For best results, try sorting your playlist by "Date added (oldest)" before cleaning. This way you'll clear out those old videos first!
+      <strong>Pro tip:</strong> Sort your playlist by "Date added (oldest)" before cleaning.
+      If you can't see the sorting dropdown, remove all the shorts in your Watch Later list.
+      Please, don't forget to click Star on the Github repo.
     </p>
-    <button style="
+    <button id="welcome-close-btn" style="
       background: #065fd4;
       color: white;
       border: none;
@@ -114,26 +118,26 @@ function showFirstTimeMessage() {
     ">Got it, thanks!</button>
   `;
 
-  // Add modal to page
   modal.appendChild(content);
   document.body.appendChild(modal);
 
-  // Close modal on button click
-  const button = content.querySelector('button');
+  const button = content.querySelector('#welcome-close-btn');
   button.onclick = () => {
     modal.remove();
     localStorage.setItem('ytPlaylistCleanerFirstTime', 'false');
   };
 }
 
-// Grab the YouTube app element - if it's not there, we'll pack it in
+// Grab the YouTube app element
 const app = document.querySelector("ytd-app");
-if (!app) return;
+if (!app) {
+  originalLog("[YT Playlist Cleaner] ytd-app not found, exiting");
+}
 
-// Helper function to pause for a bit
+// Helper function to pause
 const sleep = (timeout) => new Promise((res) => setTimeout(res, timeout));
 
-// Multi-language support for "Remove from Watch Later" string
+// Multi-language support
 const deleteButtonTexts = {
   en: ["Delete", "Remove from Watch Later"],
   es: ["Eliminar", "Quitar de Ver más tarde"],
@@ -144,48 +148,44 @@ const deleteButtonTexts = {
   ru: ["Удалить", "Удалить из списка «Смотреть позже»"],
   ja: ["削除", "後で見るから削除"],
   ko: ["삭제", "나중에 볼 동영상에서 제거"],
-  zh: ["删除", "从稍后观看中删除"],   // Simplified Chinese
+  zh: ["删除", "从稍后观看中删除"],
   he: ["מחק", "מחק מהסט של צפייה בהמשך"],
   ar: ["إزالة", "إزالة من مشاهدة لاحقًا"],
   nl: ["Verwijderen", "Verwijderen van Later bekijken"],
-  pl: ["Usuń", "Usuń z listy Do obejrzenia"],  // Polish
-  tr: ["Sil", "Daha sonra izle listesinden kaldır"],  // Fixed: correct Turkish
+  pl: ["Usuń", "Usuń z listy Do obejrzenia"],
+  tr: ["Sil", "Daha sonra izle listesinden kaldır"],
   hu: ["Törlés", "Törlés a Később megnézéshez"],
-  cs: ["Odstranit", "Odstranit z Přehrát později"],  // Fixed: complete Czech translation
-  // New languages added
+  cs: ["Odstranit", "Odstranit z Přehrát později"],
   sv: ["Ta bort", "Ta bort från Titta senare"],
-  da: ["Slet", "Fjern fra Se senere"],  // Danish
-  no: ["Slett", "Fjern fra Se senere"],  // Norwegian
-  fi: ["Poista", "Poista Katso myöhemmin -luettelosta"],  // Finnish
-  uk: ["Видалити", "Видалити зі списку «Переглянути пізніше»"],  // Ukrainian
-  ro: ["Șterge", "Elimină din Vizionează mai târziu"],  // Romanian
-  sk: ["Odstrániť", "Odstrániť zo zoznamu Pozrieť neskôr"],  // Slovak
-  bg: ["Изтриване", "Премахване от Гледай по-късно"],  // Bulgarian
-  hr: ["Izbriši", "Ukloni s popisa Pogledaj kasnije"],  // Croatian
-  el: ["Διαγραφή", "Κατάργηση από το Παρακολούθηση αργότερα"],  // Greek
-  ca: ["Suprimeix", "Suprimeix de Mira-ho més tard"],  // Catalan
-  hi: ["हटाएं", "बाद में देखें से हटाएं"],  // Hindi
-  th: ["ลบ", "นำออกจากดูภายหลัง"],  // Thai
-  vi: ["Xóa", "Xóa khỏi danh sách Xem sau"],  // Vietnamese
-  id: ["Hapus", "Hapus dari Tonton nanti"],  // Indonesian
-  ms: ["Padam", "Alih keluar daripada Tonton kemudian"],  // Malay
-  tl: ["Tanggalin", "Alisin sa Panoorin sa ibang pagkakataon"],  // Filipino/Tagalog
+  da: ["Slet", "Fjern fra Se senere"],
+  no: ["Slett", "Fjern fra Se senere"],
+  fi: ["Poista", "Poista Katso myöhemmin -luettelosta"],
+  uk: ["Видалити", "Видалити зі списку «Переглянути пізніше»"],
+  ro: ["Șterge", "Elimină din Vizionează mai târziu"],
+  sk: ["Odstrániť", "Odstrániť zo zoznamu Pozrieť neskôr"],
+  bg: ["Изтриване", "Премахване от Гледай по-късно"],
+  hr: ["Izbriši", "Ukloni s popisa Pogledaj kasnije"],
+  el: ["Διαγραφή", "Κατάργηση από το Παρακολούθηση αργότερα"],
+  ca: ["Suprimeix", "Suprimeix de Mira-ho més tard"],
+  hi: ["हटाएं", "बाद में देखें से हटाएं"],
+  th: ["ลบ", "นำออกจากดูภายหลัง"],
+  vi: ["Xóa", "Xóa khỏi danh sách Xem sau"],
+  id: ["Hapus", "Hapus dari Tonton nanti"],
+  ms: ["Padam", "Alih keluar daripada Tonton kemudian"],
+  tl: ["Tanggalin", "Alisin sa Panoorin sa ibang pagkakataon"],
 };
 
-// Waits for something to show up on the page (with configurable timeout)
 function waitForElement(selector, timeout = 5000) {
   return new Promise((resolve, reject) => {
     const existing = document.querySelector(selector);
     if (existing) {
       return resolve(existing);
     }
-
     const timeoutId = setTimeout(() => {
       observer.disconnect();
       reject(new Error(`waitForElement: "${selector}" not found within ${timeout}ms`));
     }, timeout);
 
-    // Keep an eye out for when it appears
     const observer = new MutationObserver(() => {
       const el = document.querySelector(selector);
       if (el) {
@@ -195,20 +195,18 @@ function waitForElement(selector, timeout = 5000) {
       }
     });
 
-    // Use document.documentElement for robust observation
     observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
     });
   });
 }
-// Creates the main interface for the cleaner
+
 function createFloatingUI() {
-  // Check if UI already exists
   const existingUI = document.getElementById("yt-playlist-cleaner-ui");
   if (existingUI) {
     return {
-      progressBar: existingUI.querySelector("progress"),
+      progressBar: existingUI.querySelector(".progress-fill"),
       statusText: existingUI.querySelector(".status-text"),
       countdownText: existingUI.querySelector(".countdown-text")
     };
@@ -236,7 +234,6 @@ function createFloatingUI() {
     overflow: hidden;
   `;
 
-  // Add hover effect for elevation (theme-aware)
   floatingUI.addEventListener('mouseenter', () => {
     if (config.darkMode) {
       floatingUI.style.boxShadow = '0 16px 48px rgba(255,0,0,0.2), 0 8px 24px rgba(0,0,0,0.4)';
@@ -245,6 +242,7 @@ function createFloatingUI() {
     }
     floatingUI.style.transform = 'translateY(-2px)';
   });
+
   floatingUI.addEventListener('mouseleave', () => {
     if (config.darkMode) {
       floatingUI.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)';
@@ -254,7 +252,6 @@ function createFloatingUI() {
     floatingUI.style.transform = 'translateY(0)';
   });
 
-  // Add a header with animated gradient background
   const header = document.createElement("div");
   header.style.cssText = `
     display: flex;
@@ -268,7 +265,6 @@ function createFloatingUI() {
     flex-shrink: 0;
   `;
 
-  // Add gradient animation keyframes
   const styleSheet = document.createElement('style');
   styleSheet.textContent = `
     @keyframes gradientShift {
@@ -284,31 +280,25 @@ function createFloatingUI() {
       from { transform: translateX(20px); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
     }
+    @keyframes fadeOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(20px); opacity: 0; }
+    }
+    @keyframes shrink {
+      from { transform: scaleX(1); }
+      to { transform: scaleX(0); }
+    }
   `;
   document.head.appendChild(styleSheet);
 
   const icon = document.createElement("div");
-  icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24">
-    <path fill="#ffffff" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"/>
-  </svg>`;
-  icon.style.cssText = `
-    display: flex;
-    align-items: center;
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
-  `;
+  icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24"><path fill="#ffffff" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"/></svg>`;
+  icon.style.cssText = `display: flex; align-items: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));`;
 
   const title = document.createElement("h3");
   title.textContent = "YT Playlist Cleaner";
-  title.style.cssText = `
-    margin: 0 0 0 10px;
-    font-size: 15px;
-    font-weight: 600;
-    color: #ffffff;
-    letter-spacing: 0.3px;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
-  `;
+  title.style.cssText = `margin: 0 0 0 10px; font-size: 15px; font-weight: 600; color: #ffffff; letter-spacing: 0.3px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);`;
 
-  // Status badge with glow effect
   const statusBadge = document.createElement("span");
   statusBadge.id = "cleaner-status-badge";
   statusBadge.textContent = "Ready";
@@ -322,11 +312,8 @@ function createFloatingUI() {
     color: #ffffff;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255,255,255,0.3);
   `;
 
-  // Dark mode toggle in header
   const darkModeToggle = document.createElement("button");
   darkModeToggle.id = "dark-mode-toggle";
   darkModeToggle.innerHTML = '🌙';
@@ -341,14 +328,7 @@ function createFloatingUI() {
     font-size: 14px;
     transition: all 0.2s ease;
   `;
-  darkModeToggle.addEventListener('mouseenter', () => {
-    darkModeToggle.style.background = 'rgba(255,255,255,0.35)';
-    darkModeToggle.style.transform = 'scale(1.1)';
-  });
-  darkModeToggle.addEventListener('mouseleave', () => {
-    darkModeToggle.style.background = 'rgba(255,255,255,0.2)';
-    darkModeToggle.style.transform = 'scale(1)';
-  });
+
   darkModeToggle.addEventListener('click', (e) => {
     e.stopPropagation();
     config.darkMode = !config.darkMode;
@@ -362,7 +342,6 @@ function createFloatingUI() {
   header.appendChild(darkModeToggle);
   floatingUI.appendChild(header);
 
-  // Scrollable content container
   const content = document.createElement("div");
   content.id = "cleaner-content";
   content.style.cssText = `
@@ -374,8 +353,8 @@ function createFloatingUI() {
 
   const minDelayContainer = createInputContainer("Min Delay (s):", "minDelay", "number", config.minDelay, 1, 60);
   const maxDelayContainer = createInputContainer("Max Delay (s):", "maxDelay", "number", config.maxDelay, 1, 60);
-  const maxDeleteContainer = createInputContainer("Max videos to delete:", "maxDelete", "number", config.maxDelete, 1, Infinity);
-  const pauseAfterContainer = createInputContainer("Pause after (videos):", "pauseAfter", "number", config.pauseAfter, 1, Infinity);
+  const maxDeleteContainer = createInputContainer("Max videos to delete:", "maxDelete", "number", config.maxDelete, 1, 1000);
+  const pauseAfterContainer = createInputContainer("Pause after (videos):", "pauseAfter", "number", config.pauseAfter, 1, 1000);
 
   const deleteButton = createButton("▶ Start Deleting", "#ff0000", true);
   const pauseResumeButton = createButton("⏸ Pause", "#606060", false);
@@ -384,60 +363,33 @@ function createFloatingUI() {
   const advancedOptionsToggle = createButton("⚙ Advanced Options", "transparent", false, true);
   advancedOptionsToggle.style.color = "#065fd4";
   advancedOptionsToggle.style.border = "1px solid #e0e0e0";
+
   const advancedOptions = createAdvancedOptions();
   advancedOptions.style.display = "none";
 
-  // Styled progress container
   const progressContainer = document.createElement("div");
-  progressContainer.style.cssText = `
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid #e8e8e8;
-  `;
+  progressContainer.style.cssText = `margin-top: 16px; padding-top: 16px; border-top: 1px solid #e8e8e8;`;
 
   const progressBar = document.createElement("div");
-  progressBar.style.cssText = `
-    width: 100%;
-    height: 8px;
-    background: #e8e8e8;
-    border-radius: 4px;
-    overflow: hidden;
-    position: relative;
-  `;
-  
+  progressBar.style.cssText = `width: 100%; height: 8px; background: #e8e8e8; border-radius: 4px; overflow: hidden; position: relative;`;
+
   const progressFill = document.createElement("div");
   progressFill.className = "progress-fill";
-  progressFill.style.cssText = `
-    width: 0%;
-    height: 100%;
-    background: linear-gradient(90deg, #ff0000 0%, #ff4444 100%);
-    border-radius: 4px;
-    transition: width 0.3s ease;
-  `;
+  progressFill.style.cssText = `width: 0%; height: 100%; background: linear-gradient(90deg, #ff0000 0%, #ff4444 100%); border-radius: 4px; transition: width 0.3s ease;`;
   progressBar.appendChild(progressFill);
 
   const statusText = document.createElement("div");
   statusText.className = "status-text";
-  statusText.style.cssText = `
-    margin-top: 10px;
-    font-size: 13px;
-    color: #606060;
-    font-weight: 500;
-  `;
+  statusText.style.cssText = `margin-top: 10px; font-size: 13px; color: #606060; font-weight: 500;`;
 
   const countdownText = document.createElement("div");
   countdownText.className = "countdown-text";
-  countdownText.style.cssText = `
-    margin-top: 6px;
-    font-size: 12px;
-    color: #909090;
-  `;
+  countdownText.style.cssText = `margin-top: 6px; font-size: 12px; color: #909090;`;
 
   progressContainer.appendChild(progressBar);
   progressContainer.appendChild(statusText);
   progressContainer.appendChild(countdownText);
 
-  // Add all elements to content container
   content.appendChild(minDelayContainer);
   content.appendChild(maxDelayContainer);
   content.appendChild(maxDeleteContainer);
@@ -448,7 +400,6 @@ function createFloatingUI() {
   content.appendChild(advancedOptions);
   content.appendChild(progressContainer);
   floatingUI.appendChild(content);
-
   document.body.appendChild(floatingUI);
 
   deleteButton.addEventListener("click", function () {
@@ -471,7 +422,6 @@ function createFloatingUI() {
         badge.textContent = "Paused";
         badge.style.background = "rgba(243, 156, 18, 0.3)";
       }
-      // Show persistent pause notification
       state.pauseNotificationId = showPersistentNotification('⏸ Deletion paused. Click Resume to continue.', 'warning');
     } else {
       pauseResumeButton.innerHTML = "⏸ Pause";
@@ -480,7 +430,6 @@ function createFloatingUI() {
         badge.textContent = "Running";
         badge.style.background = "rgba(46, 204, 113, 0.3)";
       }
-      // Remove persistent pause notification
       removePersistentNotification(state.pauseNotificationId);
       state.pauseNotificationId = null;
     }
@@ -492,22 +441,17 @@ function createFloatingUI() {
   });
 
   makeDraggable(floatingUI, header);
-
-  // Store progressFill reference for updates
   floatingUI.progressFill = progressFill;
 
   return { progressBar: progressFill, statusText, countdownText };
 }
 
-// Makes the interface draggable around the screen
 function makeDraggable(element, handle) {
   let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
   handle.addEventListener('mousedown', dragMouseDown);
 
   function dragMouseDown(e) {
-    // Don't start drag if clicking interactive elements inside the handle
     if (e.target.closest('button, input, select, a')) return;
-    e = e || window.event;
     e.preventDefault();
     pos3 = e.clientX;
     pos4 = e.clientY;
@@ -516,7 +460,6 @@ function makeDraggable(element, handle) {
   }
 
   function elementDrag(e) {
-    e = e || window.event;
     e.preventDefault();
     pos1 = pos3 - e.clientX;
     pos2 = pos4 - e.clientY;
@@ -532,7 +475,6 @@ function makeDraggable(element, handle) {
   }
 }
 
-// Sets up the advanced settings panel
 function createAdvancedOptions() {
   const container = document.createElement("div");
   container.style.marginTop = "10px";
@@ -542,87 +484,33 @@ function createAdvancedOptions() {
 
   const thresholdContainer = createInputContainer("Threshold %:", "threshold", "number", config.threshold, 0, 100);
   const pauseDurationContainer = createInputContainer("Pause duration (s):", "pauseDuration", "number", config.pauseDuration, 1, 3600);
-  const autoScrollContainer = createInputContainer("Auto-scroll every (videos):", "autoScrollEvery", "number", config.autoScrollEvery, 1, Infinity);
-  // New feature: age-based deletion (0 = disabled)
+  const autoScrollContainer = createInputContainer("Auto-scroll every (videos):", "autoScrollEvery", "number", config.autoScrollEvery, 1, 1000);
   const ageFilterContainer = createInputContainer("Delete videos older than (days, 0=off):", "deleteOlderThanDays", "number", config.deleteOlderThanDays, 0, 9999);
-
   const shuffleDeleteCheckbox = createCheckbox("Shuffle delete order", "shuffleDelete", config.shuffleDelete);
-  // Only delete unavailable (private/deleted) videos
   const onlyUnavailableCheckbox = createCheckbox("Delete only unavailable videos (deleted/private)", "onlyUnavailable", config.onlyUnavailable);
 
-  // Add tooltip to unavailable checkbox
   const tooltipWrapper = document.createElement("span");
   tooltipWrapper.style.cssText = `position: relative; display: inline-block; margin-left: 6px; cursor: help;`;
+  tooltipWrapper.innerHTML = 'ℹ️';
+  tooltipWrapper.title = 'You must click the 3-dots button (⋮) in the playlist sidebar and select "Show unavailable videos" for this to work!';
 
-  const tooltipIcon = document.createElement("span");
-  tooltipIcon.textContent = "ℹ️";
-  tooltipIcon.style.cssText = `font-size: 13px; opacity: 0.7; transition: opacity 0.2s;`;
-
-  const tooltipText = document.createElement("div");
-  tooltipText.textContent = 'You must click the 3-dots button (⋮) in the playlist sidebar and select "Show unavailable videos" for this to work!';
-  tooltipText.style.cssText = `
-    visibility: hidden;
-    opacity: 0;
-    position: absolute;
-    bottom: 130%;
-    left: 50%;
-    transform: translateX(-80%);
-    background: #333;
-    color: #fff;
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 14px;
-    width: 220px;
-    text-align: center;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    transition: opacity 0.2s, visibility 0.2s;
-    z-index: 10001;
-    pointer-events: none;
-    line-height: 1.4;
-  `;
-
-  tooltipWrapper.addEventListener("mouseenter", () => {
-    tooltipText.style.visibility = "visible";
-    tooltipText.style.opacity = "1";
-    tooltipIcon.style.opacity = "1";
-  });
-  tooltipWrapper.addEventListener("mouseleave", () => {
-    tooltipText.style.visibility = "hidden";
-    tooltipText.style.opacity = "0";
-    tooltipIcon.style.opacity = "0.7";
-  });
-
-  tooltipWrapper.appendChild(tooltipIcon);
-  tooltipWrapper.appendChild(tooltipText);
   onlyUnavailableCheckbox.appendChild(tooltipWrapper);
-
   container.appendChild(thresholdContainer);
   container.appendChild(pauseDurationContainer);
   container.appendChild(autoScrollContainer);
   container.appendChild(ageFilterContainer);
   container.appendChild(shuffleDeleteCheckbox);
   container.appendChild(onlyUnavailableCheckbox);
-
   return container;
 }
 
-
 function createInputContainer(labelText, id, type, value, min, max) {
   const container = document.createElement("div");
-  container.style.cssText = `
-    margin-bottom: 16px;
-    position: relative;
-  `;
+  container.style.cssText = `margin-bottom: 16px; position: relative;`;
 
   const label = document.createElement("label");
   label.textContent = labelText;
-  label.style.cssText = `
-    display: block;
-    margin-bottom: 6px;
-    font-size: 14px;
-    color: #606060;
-    font-weight: 500;
-  `;
+  label.style.cssText = `display: block; margin-bottom: 6px; font-size: 14px; color: #606060; font-weight: 500;`;
 
   const input = document.createElement("input");
   input.type = type;
@@ -642,7 +530,6 @@ function createInputContainer(labelText, id, type, value, min, max) {
     outline: none;
   `;
 
-  // Focus effect via JS (replaces invalid inline &:focus)
   input.addEventListener('focus', () => {
     input.style.borderColor = '#065fd4';
     input.style.boxShadow = '0 0 0 2px rgba(6, 95, 212, 0.15)';
@@ -657,31 +544,25 @@ function createInputContainer(labelText, id, type, value, min, max) {
   return container;
 }
 
-// Creates tick boxes for yes/no options
 function createCheckbox(labelText, id, checked) {
   const container = document.createElement("div");
   container.style.marginBottom = "10px";
-
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.id = id;
   checkbox.checked = checked;
-
   const label = document.createElement("label");
   label.textContent = labelText;
   label.style.marginLeft = "5px";
-
   container.appendChild(checkbox);
   container.appendChild(label);
-
   return container;
 }
 
-// Creates nice-looking buttons
 function createButton(text, bgColor, isPrimary = false, isOutline = false) {
   const button = document.createElement("button");
   button.innerHTML = text;
-  const baseStyles = `
+  button.style.cssText = `
     padding: ${isPrimary ? '12px 24px' : '10px 16px'};
     background: ${isOutline ? 'transparent' : bgColor};
     color: ${isOutline ? bgColor : 'white'};
@@ -697,9 +578,7 @@ function createButton(text, bgColor, isPrimary = false, isOutline = false) {
     align-items: center;
     gap: 6px;
   `;
-  button.style.cssText = baseStyles;
-  
-  // Add hover effects
+
   button.addEventListener('mouseenter', () => {
     button.style.transform = 'translateY(-1px)';
     button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
@@ -710,97 +589,98 @@ function createButton(text, bgColor, isPrimary = false, isOutline = false) {
     button.style.boxShadow = 'none';
     button.style.filter = 'none';
   });
-  
+
   return button;
 }
 
-// Updates the settings when changed
 function updateConfigFromInputs() {
-  config.threshold = parseInt(document.getElementById("threshold").value, 10);
-  config.minDelay = parseInt(document.getElementById("minDelay").value, 10);
-  config.maxDelay = parseInt(document.getElementById("maxDelay").value, 10);
-  config.maxDelete = parseInt(document.getElementById("maxDelete").value, 10);
-  config.pauseAfter = parseInt(document.getElementById("pauseAfter").value, 10);
-  config.pauseDuration = parseInt(document.getElementById("pauseDuration").value, 10);
-  config.autoScrollEvery = parseInt(document.getElementById("autoScrollEvery").value, 10);
-  config.shuffleDelete = document.getElementById("shuffleDelete").checked;
-  // New options
-  config.onlyUnavailable = document.getElementById("onlyUnavailable").checked;
-  config.deleteOlderThanDays = parseInt(document.getElementById("deleteOlderThanDays").value, 10) || 0;
+  const thresholdEl = document.getElementById("threshold");
+  if (thresholdEl) config.threshold = parseInt(thresholdEl.value, 10) || 0;
+
+  const minDelayEl = document.getElementById("minDelay");
+  if (minDelayEl) config.minDelay = parseInt(minDelayEl.value, 10) || 3;
+
+  const maxDelayEl = document.getElementById("maxDelay");
+  if (maxDelayEl) config.maxDelay = parseInt(maxDelayEl.value, 10) || 7;
+
+  const maxDeleteEl = document.getElementById("maxDelete");
+  if (maxDeleteEl) config.maxDelete = parseInt(maxDeleteEl.value, 10) || 200;
+
+  const pauseAfterEl = document.getElementById("pauseAfter");
+  if (pauseAfterEl) config.pauseAfter = parseInt(pauseAfterEl.value, 10) || 100;
+
+  const pauseDurationEl = document.getElementById("pauseDuration");
+  if (pauseDurationEl) config.pauseDuration = parseInt(pauseDurationEl.value, 10) || 60;
+
+  const autoScrollEveryEl = document.getElementById("autoScrollEvery");
+  if (autoScrollEveryEl) config.autoScrollEvery = parseInt(autoScrollEveryEl.value, 10) || 10;
+
+  const shuffleDeleteEl = document.getElementById("shuffleDelete");
+  if (shuffleDeleteEl) config.shuffleDelete = shuffleDeleteEl.checked;
+
+  const onlyUnavailableEl = document.getElementById("onlyUnavailable");
+  if (onlyUnavailableEl) config.onlyUnavailable = onlyUnavailableEl.checked;
+
+  const deleteOlderThanDaysEl = document.getElementById("deleteOlderThanDays");
+  if (deleteOlderThanDaysEl) config.deleteOlderThanDays = parseInt(deleteOlderThanDaysEl.value, 10) || 0;
+
   saveConfig();
 }
 
-// Gets all the videos from the playlist
 function* getVideos() {
-  // Cache the selector results
   const videoSelector = "ytd-playlist-video-renderer";
   let videos = Array.from(document.querySelectorAll(videoSelector));
-
   if (config.shuffleDelete) {
     videos = shuffleArray(videos);
   }
 
-  // Use more efficient selectors and cache DOM queries
   for (const video of videos) {
     const titleEl = video.querySelector("#video-title");
     const progressEl = video.querySelector("ytd-thumbnail-overlay-resume-playback-renderer");
     const menuEl = video.querySelector("ytd-menu-renderer");
 
-    // Skip invalid videos
     if (!titleEl || !menuEl) continue;
 
-    // Detect unavailable videos (private/deleted)
-    // YouTube marks these with specific badge text or title patterns
-    // Selector: ytd-badge-supported-renderer contains status badges
     const badgeEl = video.querySelector("yt-formatted-string.ytd-badge-supported-renderer");
     const badgeText = badgeEl?.textContent?.toLowerCase() || "";
-    // Also check the title for "[Private video]" or "[Deleted video]" markers
     const titleText = titleEl.innerText || "";
-    const isUnavailable = 
-      badgeText.includes("private") || 
-      badgeText.includes("deleted") ||
-      titleText.includes("[Private video]") ||
-      titleText.includes("[Deleted video]");
+    const isUnavailable = badgeText.includes("private") ||
+                         badgeText.includes("deleted") ||
+                         titleText.includes("[Private video]") ||
+                         titleText.includes("[Deleted video]");
 
-    // Extract date added for age-based filtering
-    // YouTube stores this in the video renderer's data or as visible text
-    // Look for the "#video-info" secondary text which may contain date info
     const secondaryInfoEl = video.querySelector("#video-info yt-formatted-string");
     let dateAdded = null;
     if (secondaryInfoEl) {
-      // Try to parse relative date strings like "3 days ago", "2 weeks ago", etc.
       const infoText = secondaryInfoEl.textContent || "";
       dateAdded = parseRelativeDate(infoText);
     }
+
+    const menuButton = menuEl.querySelector("yt-icon-button#button");
 
     yield {
       container: video,
       title: titleText,
       progress: progressEl?.data?.percentDurationWatched ?? 0,
       menu: menuEl,
-      menuButton: menuEl.querySelector("yt-icon-button#button"),
+      menuButton: menuButton,
       isUnavailable: isUnavailable,
       dateAdded: dateAdded
     };
   }
 }
 
-// Parses relative date strings like "3 days ago" into a Date object
-// Returns null if parsing fails
 function parseRelativeDate(text) {
   if (!text) return null;
-  
   const now = new Date();
   const lowerText = text.toLowerCase();
-  
-  // Match patterns like "X days/weeks/months/years ago"
   const match = lowerText.match(/(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago/i);
   if (!match) return null;
-  
+
   const amount = parseInt(match[1], 10);
   const unit = match[2].toLowerCase();
-  
   const date = new Date(now);
+
   switch (unit) {
     case 'second': date.setSeconds(date.getSeconds() - amount); break;
     case 'minute': date.setMinutes(date.getMinutes() - amount); break;
@@ -811,22 +691,17 @@ function parseRelativeDate(text) {
     case 'year': date.setFullYear(date.getFullYear() - amount); break;
     default: return null;
   }
-  
   return date;
 }
 
-// Checks if a video is old enough based on deleteOlderThanDays config
-// Returns true if video should be deleted (is old enough or filter disabled)
 function isVideoOldEnough(video) {
-  if (config.deleteOlderThanDays <= 0) return true; // Filter disabled
-  if (!video.dateAdded) return true; // Can't determine age, allow deletion
-  
+  if (config.deleteOlderThanDays <= 0) return true;
+  if (!video.dateAdded) return true;
   const now = new Date();
   const ageInDays = (now - video.dateAdded) / (1000 * 60 * 60 * 24);
   return ageInDays >= config.deleteOlderThanDays;
 }
 
-// Shuffling logic (mixes up the order of videos
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -835,28 +710,24 @@ function shuffleArray(array) {
   return array;
 }
 
-// Cleansing logic initializing the cleaning process and sets up the UI for tasks
 async function cleanse(progressBar, statusText, countdownText) {
-  console.log("Cleansing...");
+  originalLog("Cleansing...");
   state.deletedCount = 0;
-  state.skippedCount = 0;  // Reset skip counter
+  state.skippedCount = 0;
   state.totalVideos = Array.from(getVideos()).length;
   state.currentVideo = 0;
   state.startTime = Date.now();
   state.pauseState = 'running';
   state.isAutoPaused = false;
 
-  // Reset progress bar
   progressBar.style.width = '0%';
 
-  // Initial scroll to bottom and back to top
   await autoScroll();
-  console.log("Initial scroll completed. Waiting for 5 seconds...");
+  originalLog("Initial scroll completed. Waiting for 5 seconds...");
   await countdown(5, countdownText);
 
-  // Outer loop: re-query DOM after each pass to catch newly loaded videos
   let emptyPasses = 0;
-  const MAX_EMPTY_PASSES = 3;  // Give up after 3 consecutive passes with no videos
+  const MAX_EMPTY_PASSES = 3;
 
   while (state.deletedCount < config.maxDelete) {
     let processedAny = false;
@@ -867,16 +738,13 @@ async function cleanse(progressBar, statusText, countdownText) {
         originalLog(`[state] Reached maxDelete limit (${config.maxDelete}), stopping`);
         break;
       }
-
       processedAny = true;
 
-      // Process in batches to prevent UI freezes
       if (++batchSize >= 10) {
         await new Promise(resolve => setTimeout(resolve, 50));
         batchSize = 0;
       }
 
-      // Handle manual pause with state logging
       while (state.isPaused) {
         if (state.pauseState !== 'pausing') {
           state.pauseState = 'pausing';
@@ -884,6 +752,7 @@ async function cleanse(progressBar, statusText, countdownText) {
         }
         await sleep(1000);
       }
+
       if (state.pauseState === 'pausing') {
         state.pauseState = 'resuming';
         originalLog(`[state] resuming → User resumed deletion`);
@@ -891,38 +760,31 @@ async function cleanse(progressBar, statusText, countdownText) {
         originalLog(`[state] running → Continuing deletion (deleted: ${state.deletedCount}/${config.maxDelete})`);
       }
 
-      originalLog(`${video.title} (${video.progress}%)`);  // Log to console only, no notification
+      originalLog(`${video.title} (${video.progress}%)`);
       state.currentVideo++;
 
-      // Check all deletion criteria
       const meetsThreshold = video.progress >= config.threshold;
-      // Unavailable filter - if enabled, only delete unavailable videos
       const meetsUnavailableFilter = !config.onlyUnavailable || video.isUnavailable;
-      // Age filter - only delete videos older than specified days
       const meetsAgeFilter = isVideoOldEnough(video);
 
       if (meetsThreshold && meetsUnavailableFilter && meetsAgeFilter) {
-        originalLog("  Deleting...");
+        originalLog(" Deleting...");
         const deleteSuccess = await retry(() => deleteVideo(video, countdownText));
         if (deleteSuccess) {
           state.deletedCount++;
           state.consecutiveErrors = 0;
         }
 
-        // Check for automatic pause after N deletions
         if (state.deletedCount % config.pauseAfter === 0 && state.deletedCount < config.maxDelete) {
           state.pauseState = 'pausing';
           state.isAutoPaused = true;
           originalLog(`[state] pausing → Auto-pause triggered after ${config.pauseAfter} videos`);
-          
           state.pauseState = 'waiting';
           originalLog(`[state] waiting → Pausing for ${config.pauseDuration} seconds...`);
           await countdown(config.pauseDuration, countdownText);
-          
           state.pauseState = 'resuming';
           state.isAutoPaused = false;
           originalLog(`[state] resuming → Pause duration complete, continuing deletion`);
-          
           state.pauseState = 'running';
           originalLog(`[state] running → Resuming (deleted: ${state.deletedCount}/${config.maxDelete}, remaining videos in queue)`);
         }
@@ -931,22 +793,19 @@ async function cleanse(progressBar, statusText, countdownText) {
           await autoScroll();
         }
       } else {
-        // Skip silently - only log to console, not notifications
         state.skippedCount++;
         let skipReason = [];
         if (!meetsThreshold) skipReason.push(`threshold not met`);
         if (!meetsUnavailableFilter) skipReason.push('not unavailable');
         if (!meetsAgeFilter) skipReason.push(`too recent`);
-        originalLog(`  Skipping "${video.title.substring(0, 30)}...": ${skipReason.join(', ')}`);
+        originalLog(` Skipping "${video.title.substring(0, 30)}...": ${skipReason.join(', ')}`);
       }
 
-      // Update progress bar (now using percentage-based width)
       const progressPercent = (state.deletedCount / config.maxDelete) * 100;
       progressBar.style.width = `${Math.min(progressPercent, 100)}%`;
       statusText.textContent = `Deleted: ${state.deletedCount} / ${config.maxDelete} target`;
     }
 
-    // After processing all currently loaded videos, try to load more
     if (state.deletedCount >= config.maxDelete) break;
 
     if (!processedAny) {
@@ -957,45 +816,44 @@ async function cleanse(progressBar, statusText, countdownText) {
         break;
       }
     } else {
-      emptyPasses = 0;  // Reset counter on successful pass
+      emptyPasses = 0;
     }
 
-    // Auto-scroll to load more videos from YouTube's lazy loader
     await autoScroll();
     originalLog(`[state] Re-scanning for more videos (deleted so far: ${state.deletedCount}/${config.maxDelete})...`);
-    await sleep(2000);  // Wait for YouTube to load new items
+    await sleep(2000);
   }
 
-  // Log skip summary once at end (not as notification)
   if (state.skippedCount > 0) {
     originalLog(`[summary] Skipped ${state.skippedCount} videos that didn't match criteria`);
   }
 
-  // Shows the final results of the clean-up
   state.pauseState = 'running';
   const badge = document.getElementById("cleaner-status-badge");
   if (badge) {
     badge.textContent = "Done";
     badge.style.background = "rgba(46, 204, 113, 0.3)";
   }
+
   const endTime = Date.now();
   const duration = Math.round((endTime - state.startTime) / 1000);
-  console.log(`Done! Deleted ${state.deletedCount} videos in ${duration} seconds`);
+  originalLog(`Done! Deleted ${state.deletedCount} videos in ${duration} seconds`);
   statusText.textContent = `✓ Finished: ${state.deletedCount}/${config.maxDelete} videos deleted (${state.totalVideos} scanned)`;
   showSummaryNotification(state.totalVideos, state.deletedCount, state.skippedCount, duration);
   updateStatistics(state.deletedCount, duration);
 }
 
-// Deletes a video from the playlist
-// Returns true on success, false on failure
 async function deleteVideo(video, countdownText) {
   let success = false;
   try {
+    if (!video.menuButton) {
+      originalLog(` ✗ Menu button not found for: "${video.title.substring(0, 50)}"`);
+      state.consecutiveErrors++;
+      return false;
+    }
+
     video.menuButton.click();
-
     const popup = await waitForElement("ytd-menu-popup-renderer", 5000);
-
-    // Wait for the menu items to load
     await sleep(500);
 
     const menuItems = Array.from(popup.querySelectorAll("ytd-menu-service-item-renderer"));
@@ -1010,80 +868,64 @@ async function deleteVideo(video, countdownText) {
       deleteButton.click();
       state.consecutiveErrors = 0;
       success = true;
-      originalLog(`  ✓ Removed: "${video.title.substring(0, 50)}"`);
+      originalLog(` ✓ Removed: "${video.title.substring(0, 50)}"`);
     } else {
       state.consecutiveErrors++;
-      originalLog(`  ✗ Delete button not found for: "${video.title.substring(0, 50)}"`);
-
+      originalLog(` ✗ Delete button not found for: "${video.title.substring(0, 50)}"`);
       if (state.consecutiveErrors >= 3) {
-        const waitTime = Math.min(30 * state.consecutiveErrors, 300); // Max 5 minutes
+        const waitTime = Math.min(30 * state.consecutiveErrors, 300);
         showNotification(`⚠ ${state.consecutiveErrors} consecutive errors. Cooling down ${waitTime}s...`, 'warning');
         await countdown(waitTime, countdownText);
       }
-
       throw new Error(`Delete button not found (consecutive errors: ${state.consecutiveErrors})`);
     }
   } catch (error) {
     state.lastErrorTime = Date.now();
     if (error.message.includes('not found within')) {
-      // waitForElement timeout — menu never appeared
-      originalLog(`  ✗ Menu popup timed out for: "${video.title.substring(0, 50)}"`);
+      originalLog(` ✗ Menu popup timed out for: "${video.title.substring(0, 50)}"`);
       state.consecutiveErrors++;
     } else if (!error.message.includes('Delete button not found')) {
-      // Unexpected error
-      originalLog(`  ✗ Unexpected error: ${error.message}`);
+      originalLog(` ✗ Unexpected error: ${error.message}`);
       state.consecutiveErrors++;
     }
   }
 
-  // Random delay always runs — even after failure — to respect rate limits
   const randomDelay = Math.floor(Math.random() * (config.maxDelay - config.minDelay + 1)) + config.minDelay;
   await countdown(randomDelay, countdownText);
   return success;
 }
 
-// Add debouncing for scroll events
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-// Scrolls through the playlist to load all videos
-const autoScroll = debounce(async () => {
-  // Use more efficient scrolling
+const autoScroll = async () => {
   const scrollStep = window.innerHeight;
-  const maxScroll = Math.max(
-    document.documentElement.scrollHeight,
-    document.body.scrollHeight
-  );
+  let lastScroll = -1;
+  let stableScrolls = 0;
+  let attempts = 0;
+  const maxAttempts = 10;
 
-  // Scroll down in chunks
-  for (let currentScroll = 0; currentScroll < maxScroll; currentScroll += scrollStep) {
-    window.scrollTo({
-      top: currentScroll,
-      behavior: 'smooth'
-    });
-    await sleep(100); // Small pause between scrolls
+  while (stableScrolls < 2 && attempts < maxAttempts) {
+    const maxScroll = Math.max(
+      document.documentElement.scrollHeight,
+      document.body.scrollHeight
+    );
+
+    if (lastScroll === maxScroll) {
+      stableScrolls++;
+    } else {
+      stableScrolls = 0;
+    }
+    lastScroll = maxScroll;
+
+    window.scrollTo({ top: maxScroll, behavior: 'smooth' });
+    await sleep(800);
+    attempts++;
   }
 
-  // Return to top
-  window.scrollTo({
-    top: 0,
-    behavior: 'smooth'
-  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await sleep(2000);
+};
 
-  await sleep(500);
-}, 250);
-
-// Shows a countdown between actions
 async function countdown(seconds, countdownText) {
+  if (!countdownText) return;
   for (let i = seconds; i > 0; i--) {
     countdownText.textContent = `Next action in: ${i} seconds`;
     await sleep(1000);
@@ -1091,7 +933,6 @@ async function countdown(seconds, countdownText) {
   countdownText.textContent = '';
 }
 
-// Shows the final results of the clean-up
 function showSummaryNotification(totalProcessed, deleted, skipped, duration) {
   const message = `
     Summary:
@@ -1100,10 +941,9 @@ function showSummaryNotification(totalProcessed, deleted, skipped, duration) {
     Skipped: ${skipped}
     Time taken: ${duration} seconds
   `;
-  showNotification(message, 'info', 10000); // Show for 10 seconds
+  showNotification(message, 'info', 10000);
 }
 
-// Sets up the notification system
 function createNotificationContainer() {
   const container = document.createElement('div');
   container.id = 'yt-cleanser-notifications';
@@ -1121,12 +961,10 @@ function createNotificationContainer() {
   return container;
 }
 
-// Shows a persistent notification that stays until manually removed
 let persistentNotificationCounter = 0;
 function showPersistentNotification(message, type = 'info') {
   const container = document.getElementById('yt-cleanser-notifications') || createNotificationContainer();
   const id = `persistent-notification-${++persistentNotificationCounter}`;
-  
   const notification = document.createElement('div');
   notification.id = id;
   notification.style.cssText = `
@@ -1139,10 +977,9 @@ function showPersistentNotification(message, type = 'info') {
     display: flex;
     align-items: center;
     gap: 12px;
-    backdrop-filter: blur(8px);
     animation: slideIn 0.3s forwards;
   `;
-  
+
   const colors = {
     info: 'rgba(6, 95, 212, 0.95)',
     warning: 'rgba(243, 156, 18, 0.95)',
@@ -1150,23 +987,21 @@ function showPersistentNotification(message, type = 'info') {
     success: 'rgba(46, 204, 113, 0.95)'
   };
   notification.style.backgroundColor = colors[type];
-  
+
   const icon = document.createElement('div');
   icon.innerHTML = getNotificationIcon(type);
   icon.style.flexShrink = '0';
-  
+
   const messageContainer = document.createElement('div');
   messageContainer.style.flex = '1';
   messageContainer.innerHTML = message;
-  
+
   notification.appendChild(icon);
   notification.appendChild(messageContainer);
   container.appendChild(notification);
-  
   return id;
 }
 
-// Removes a persistent notification by ID
 function removePersistentNotification(id) {
   if (!id) return;
   const notification = document.getElementById(id);
@@ -1177,10 +1012,11 @@ function removePersistentNotification(id) {
   }
 }
 
-// Shows a notification with an optional progress bar
+let isShowingNotification = false;
 function showNotification(message, type = 'info', duration = 5000) {
-  const container = document.getElementById('yt-cleanser-notifications') || createNotificationContainer();
+  if (isShowingNotification) return;
 
+  const container = document.getElementById('yt-cleanser-notifications') || createNotificationContainer();
   const notification = document.createElement('div');
   notification.style.cssText = `
     padding: 16px;
@@ -1195,7 +1031,6 @@ function showNotification(message, type = 'info', duration = 5000) {
     display: flex;
     align-items: center;
     gap: 12px;
-    backdrop-filter: blur(8px);
     animation: slideIn 0.3s forwards, fadeOut 0.3s ${duration - 300}ms forwards;
   `;
 
@@ -1205,40 +1040,16 @@ function showNotification(message, type = 'info', duration = 5000) {
     error: 'rgba(231, 76, 60, 0.95)',
     success: 'rgba(46, 204, 113, 0.95)'
   };
-
   notification.style.backgroundColor = colors[type];
 
-  // Add icon
   const icon = document.createElement('div');
   icon.innerHTML = getNotificationIcon(type);
   icon.style.flexShrink = '0';
 
-  // Add message with possible HTML
   const messageContainer = document.createElement('div');
   messageContainer.style.flex = '1';
   messageContainer.innerHTML = message;
 
-  // Add progress bar
-  const progress = document.createElement('div');
-  progress.style.cssText = `
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    height: 3px;
-    width: 100%;
-    background: rgba(255, 255, 255, 0.3);
-  `;
-
-  const progressBar = document.createElement('div');
-  progressBar.style.cssText = `
-    height: 100%;
-    width: 100%;
-    background: rgba(255, 255, 255, 0.7);
-    transform-origin: left;
-    animation: shrink ${duration}ms linear forwards;
-  `;
-
-  // Add close button
   const closeButton = document.createElement('button');
   closeButton.innerHTML = '×';
   closeButton.style.cssText = `
@@ -1251,233 +1062,101 @@ function showNotification(message, type = 'info', duration = 5000) {
     opacity: 0.7;
     transition: opacity 0.2s;
   `;
-  // Hover effect via JS (replaces invalid inline &:hover)
-  closeButton.addEventListener('mouseenter', () => { closeButton.style.opacity = '1'; });
-  closeButton.addEventListener('mouseleave', () => { closeButton.style.opacity = '0.7'; });
-
-  closeButton.onclick = () => {
+  closeButton.addEventListener('click', () => {
     notification.style.opacity = '0';
     notification.style.transform = 'translateX(20px)';
     setTimeout(() => notification.remove(), 300);
-  };
+  });
 
-  progress.appendChild(progressBar);
   notification.appendChild(icon);
   notification.appendChild(messageContainer);
   notification.appendChild(closeButton);
-  notification.appendChild(progress);
   container.appendChild(notification);
 
-  // Add CSS animations
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes slideIn {
-      from {
-        transform: translateX(20px);
-        opacity: 0;
-      }
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
-    }
-
-    @keyframes fadeOut {
-      from {
-        transform: translateX(0);
-        opacity: 1;
-      }
-      to {
-        transform: translateX(20px);
-        opacity: 0;
-      }
-    }
-
-    @keyframes shrink {
-      from { transform: scaleX(1); }
-      to { transform: scaleX(0); }
-    }
-  `;
-  document.head.appendChild(style);
-
-  // Remove notification after duration
+  isShowingNotification = true;
   setTimeout(() => {
     notification.remove();
+    isShowingNotification = false;
   }, duration);
 }
 
-// Gets the icon for the notification
 function getNotificationIcon(type) {
   const icons = {
-    info: `<svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-    </svg>`,
-    warning: `<svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-      <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-    </svg>`,
-    error: `<svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-      <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>
-    </svg>`
+    info: `<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>`,
+    warning: `<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`,
+    error: `<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>`,
+    success: `<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`
   };
   return icons[type] || icons.info;
 }
 
-// Override console.log, console.warn, and console.error to show notifications
-const originalLog = console.log;
-const originalWarn = console.warn;
-const originalError = console.error;
-
-console.log = function(...args) {
-  showNotification(args.join(' '), 'info');
-  originalLog.apply(console, args);
-};
-
-console.warn = function(...args) {
-  showNotification(args.join(' '), 'warning');
-  originalWarn.apply(console, args);
-};
-
-console.error = function(...args) {
-  showNotification(args.join(' '), 'error');
-  originalError.apply(console, args);
-};
-
-const { progressBar, statusText, countdownText } = createFloatingUI();
-showNotification('YT Playlist Cleaner is ready!', 'info');
-
-// Creates a progress bar for the UI
-function createProgressBar() {
-  const progressContainer = document.createElement("div");
-  progressContainer.style.cssText = `
-    margin-top: 16px;
-    background-color: #f8f8f8;
-    border-radius: 8px;
-    overflow: hidden;
-  `;
-
-  const progressBar = document.createElement("div");
-  progressBar.style.cssText = `
-    width: 0%;
-    height: 6px;
-    background-color: #065fd4;
-    transition: width 0.3s ease;
-  `;
-
-  const statusText = document.createElement("div");
-  statusText.style.cssText = `
-    margin-top: 8px;
-    font-size: 13px;
-    color: #606060;
-    display: flex;
-    justify-content: space-between;
-  `;
-
-  progressContainer.appendChild(progressBar);
-  progressContainer.appendChild(statusText);
-  return { progressContainer, progressBar, statusText };
-}
-
-// Toggles the dark mode, obviously
-function toggleDarkMode() {
-  config.darkMode = !config.darkMode;
-  updateTheme();
-}
-
-// Updates the UI theme
 function updateTheme() {
   const ui = document.getElementById("yt-playlist-cleaner-ui");
   const content = document.getElementById("cleaner-content");
   if (!ui) return;
 
   if (config.darkMode) {
-    // Dark mode styles
     ui.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #222222 100%)';
     ui.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)';
-    
-    if (content) {
-      content.style.background = '#1a1a1a';
-    }
+    if (content) content.style.background = '#1a1a1a';
 
-    // Update input fields
     ui.querySelectorAll('input').forEach(input => {
       input.style.background = '#2a2a2a';
       input.style.color = '#ffffff';
       input.style.border = '1px solid #404040';
     });
-
-    // Update labels
     ui.querySelectorAll('label').forEach(label => {
       label.style.color = '#b0b0b0';
     });
 
-    // Update status text
     const statusText = ui.querySelector('.status-text');
     if (statusText) statusText.style.color = '#b0b0b0';
-    
     const countdownText = ui.querySelector('.countdown-text');
     if (countdownText) countdownText.style.color = '#808080';
 
-    // Update progress bar background
     const progressBar = ui.querySelector('.progress-fill')?.parentElement;
     if (progressBar) progressBar.style.background = '#333333';
 
-    // Update advanced options border
     const advOptions = ui.querySelector('div[style*="border: 1px solid"]');
     if (advOptions) {
       advOptions.style.borderColor = '#404040';
       advOptions.style.background = '#222222';
     }
-
   } else {
-    // Light mode styles
     ui.style.background = 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)';
     ui.style.boxShadow = '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)';
-    
-    if (content) {
-      content.style.background = 'transparent';
-    }
+    if (content) content.style.background = 'transparent';
 
-    // Reset input fields
     ui.querySelectorAll('input').forEach(input => {
       input.style.background = '#ffffff';
       input.style.color = '#030303';
       input.style.border = '1px solid #e0e0e0';
     });
-
-    // Reset labels
     ui.querySelectorAll('label').forEach(label => {
       label.style.color = '#606060';
     });
 
-    // Reset status text
     const statusText = ui.querySelector('.status-text');
     if (statusText) statusText.style.color = '#606060';
-    
     const countdownText = ui.querySelector('.countdown-text');
     if (countdownText) countdownText.style.color = '#909090';
 
-    // Reset progress bar background
     const progressBar = ui.querySelector('.progress-fill')?.parentElement;
     if (progressBar) progressBar.style.background = '#e8e8e8';
 
-    // Reset advanced options
     const advOptions = ui.querySelector('div[style*="border: 1px solid"]');
     if (advOptions) {
       advOptions.style.borderColor = '#ccc';
       advOptions.style.background = 'transparent';
     }
   }
-
-  // Save the theme preference
   saveConfig();
 }
 
-// Saves the current configuration
 function saveConfig() {
   localStorage.setItem('ytPlaylistCleanerConfig', JSON.stringify(config));
 }
 
-// Loads saved settings
 function loadConfig() {
   const savedConfig = localStorage.getItem('ytPlaylistCleanerConfig');
   if (savedConfig) {
@@ -1485,53 +1164,44 @@ function loadConfig() {
   }
 }
 
-// Call loadConfig() when script starts
 loadConfig();
 
-// Retry mechanism for failed operations with exponential backoff
 async function retry(operation, maxAttempts = 3, delay = 1000) {
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-            return await operation();
-        } catch (error) {
-            if (attempt === maxAttempts) {
-              originalLog(`[retry] All ${maxAttempts} attempts failed: ${error.message}`);
-              return false; // Signal failure instead of throwing
-            }
-            const backoffDelay = delay * attempt;
-            originalLog(`[retry] Attempt ${attempt}/${maxAttempts} failed: ${error.message}. Retrying in ${backoffDelay}ms...`);
-            await sleep(backoffDelay);
-        }
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxAttempts) {
+        originalLog(`[retry] All ${maxAttempts} attempts failed: ${error.message}`);
+        return false;
+      }
+      const backoffDelay = delay * attempt;
+      originalLog(`[retry] Attempt ${attempt}/${maxAttempts} failed: ${error.message}. Retrying in ${backoffDelay}ms...`);
+      await sleep(backoffDelay);
     }
+  }
 }
 
-// Keeps track of usage statistics
 function updateStatistics(deletedCount, duration) {
-    const stats = state.statistics;
-    stats.sessionsCount++;
-    stats.totalVideosDeleted += deletedCount;
-    stats.totalTimeSpent += duration;
+  const stats = state.statistics;
+  stats.sessionsCount++;
+  stats.totalVideosDeleted += deletedCount;
+  stats.totalTimeSpent += duration;
+  if (stats.totalVideosDeleted > 0) {
     stats.averageDeleteTime = stats.totalTimeSpent / stats.totalVideosDeleted;
-
-    localStorage.setItem('ytPlaylistCleanerStats', JSON.stringify(stats));
+  }
+  localStorage.setItem('ytPlaylistCleanerStats', JSON.stringify(stats));
 }
 
-// Modify the initializeScript function
 async function initializeScript() {
-  // Check if already initialized
   if (document.getElementById("yt-playlist-cleaner-ui")) {
     return;
   }
 
-  // Load config first
   loadConfig();
-
-  // Add debug logging
-  console.log('Config loaded:', config);
-  console.log('First time message status:', config.firstTimeMessage);
+  originalLog('Config loaded:', config);
 
   try {
-    // Wait for YouTube to be fully loaded
     await new Promise((resolve) => {
       const checkYouTube = setInterval(() => {
         if (document.querySelector('ytd-app')) {
@@ -1541,30 +1211,22 @@ async function initializeScript() {
       }, 100);
     });
 
-    // Add a longer delay to ensure YouTube's UI is stable
     await sleep(3000);
-
-    // Initialize UI
     const { progressBar, statusText, countdownText } = createFloatingUI();
+    originalLog('UI initialized');
 
-    console.log('UI initialized');
-
-    // Check for first time message
     if (config.firstTimeMessage === true) {
-      console.log('Showing welcome popup');
+      originalLog('Showing welcome popup');
       showFirstTimeMessage();
-
-      // Update config after showing popup
       config.firstTimeMessage = false;
       saveConfig();
-      console.log('Welcome popup shown and config updated');
+      originalLog('Welcome popup shown and config updated');
     }
   } catch (error) {
-    console.error('Error during initialization:', error);
+    originalLog('Error during initialization:', error);
   }
 }
 
-// Move script initialization to after DOM content is loaded
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeScript);
 } else {

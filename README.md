@@ -20,7 +20,7 @@ This script has been further optimised with the help of Claude AI.
 
 ## What's New in **v2.0** (2026‑02‑09) 
 
-Now at **v2.0.4** (2026‑02‑19) — incremental fixes, optimisations, and UI refinements. [See full changelog ›](https://github.com/John-nata/YT-Playlist-Cleaner/blob/main/changelog.md)
+Now at **v2.0.5** (2026‑03‑02) — incremental fixes, optimisations, and UI refinements. [See full changelog ›](https://github.com/John-nata/YT-Playlist-Cleaner/blob/main/changelog.md)
 
 ### ✨ New Features
 

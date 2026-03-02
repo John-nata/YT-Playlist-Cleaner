@@ -1,15 +1,15 @@
 # YouTube Playlist Cleaner
 
-[Screenshot](#screenshot) · [Installation](#installation) · [What's New](#whats-new-in-v20-202602-09) · [Features](#features) · [Configuration](#configuration) · [Support](#support)
+[Installation](#installation) · [Changelog](https://github.com/John-nata/YT-Playlist-Cleaner/blob/main/changelog.md) · [Features](#features) · [Configuration](#configuration) · [Support](#support)
 
 
 ## Overview
 
-YouTube Playlist Cleaner is a userscript that helps you tidy up your YouTube playlists by automatically removing videos based on customisable settings. It now includes advanced features like batch processing, dark mode, and usage statistics for a better experience.
+YouTube Playlist Cleaner is a userscript that helps you tidy up your YouTube playlists by automatically removing videos based on customisable settings. Version 2.0 introduces advanced features like batch processing, dark mode, unavailable-video filtering, age-based deletion rules, and 17 new language translations for a refined experience.
 
 The development of this script was inspired by [@colejd's work](https://gist.github.com/astamicu/eb351ce10451f1a51b71a1287d36880f?permalink_comment_id=4489588#gistcomment-4489588).
 
-This script has been further optimised with the help of Claude AI.
+This script has been further optimised with the help of Antigravity.
 
 ## Screenshot
 
@@ -21,45 +21,20 @@ This script has been further optimised with the help of Claude AI.
 2. Click on the following link to install the script: [Install YouTube Playlist Cleaner]([https://github.com/John-nata/YT-Playlist-Cleaner/raw/main/YT-playlist-cleaner.js](https://github.com/John-nata/YT-Playlist-Cleaner/raw/refs/heads/main/YT-playlist-cleaner.user.js))
 3. The script will automatically run when you visit a YouTube playlist page.
 
-## What's New in **v2.0** (2026‑02‑09) 
-
-Now at **v2.0.5** (2026‑03‑02) — incremental fixes, optimisations, and UI refinements. [See full changelog ›](https://github.com/John-nata/YT-Playlist-Cleaner/blob/main/changelog.md)
-
-### ✨ New Features
-
--   **Unavailable video filter**  — Only delete private and deleted videos
--   **Age-based deletion**  — Skip videos added within the last N days
--   **17 new language translations**  — Swedish, Danish, Norwegian, Finnish, Ukrainian, Romanian, Slovak, Bulgarian, Croatian, Greek, Catalan, Hindi, Thai, Vietnamese, Indonesian, Malay, Filipino
--   **Persistent pause notification**  — Stays visble until Resume is clicked
-
-### 🎨 Complete UI Redesign
-
--   **Modern interface**  with YouTube-native + Material Design blend
--   **Status badge**  showing real-time state (Ready → Running → Paused → Done)
--   **Hover lift effect**  with subtle red glow shadow
--   **Proper theme colors**  for all elements (inputs, labels, progress bar)
--   **Sun/moon icons**  that swap on toggle (🌙 ↔ ☀️)
--   **Glassmorphism-ish badge**  
-
-### 🔧 Bug Fixes
-
--   **Fixed pause/resume logic**  — Proper state machine with corrct transition logging
--   **Fixed completion message**  — Now correctly shows "X of Y target deleted"
--   **Persistent pause notification**  — Stays visible until you click Resume
--   **Fixed Polish, Turkish, Czech translations**  that were incomplete
-
-
-
 ---
 
 ## Features
 
-- Automatically remove videos from YouTube playlists.
-- Customisable settings for deletion criteria.
-- Auto-scroll functionality to process large playlists.
-- Pause and resume functionality.
-- Configurable delays between deletions to avoid rate limiting.
-- Dark mode for a cmfortable experience.
+-   **Automatically remove videos** from YouTube playlists based on watch-percentage thresholds.    
+-   **Unavailable video filter** — target only private and deleted videos.    
+-   **Age-based deletion** — skip videos added within the last N days.    
+-   **Batch processing** with configurable delays between deletions to avoid rate limiting.    
+-   **Auto-scroll functionality** to process large playlists without manual intervention.    
+-   **Pause and resume** with persistent state notifications.    
+-   **Complete UI redesign** featuring dark mode, status badges, and YouTube-native Material Design theming.    
+-   **Multi-language support** with 18 total translations.
+
+Now at **v2.0.5** (2026‑03‑02) [See full changelog ›](https://github.com/John-nata/YT-Playlist-Cleaner/blob/main/changelog.md)
 
 ## Usage
 

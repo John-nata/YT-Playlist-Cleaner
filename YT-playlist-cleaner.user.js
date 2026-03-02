@@ -1,12 +1,15 @@
 // ==UserScript==
 // @name YT Playlist Cleaner
-// @version 2.0.4
+// @version 2.0.5
 // @description A handy tool to tidy up your YouTube playlists with custom settings and smart features
 // @author John-nata
 // @match http*://*.youtube.com/playlist*
 // @match http*://youtube.com/playlist*
 // @run-at document-idle
+// @grant none
 // @homepageURL https://github.com/John-nata/YT-Playlist-Cleaner
+// @updateURL https://raw.githubusercontent.com/John-nata/YT-Playlist-Cleaner/main/YT-playlist-cleaner.user.js
+// @downloadURL https://raw.githubusercontent.com/John-nata/YT-Playlist-Cleaner/main/YT-playlist-cleaner.user.js
 // ==/UserScript==
 
 // Main settings for the cleaner
@@ -60,14 +63,19 @@ if (!localStorage.getItem('ytPlaylistCleanerFirstTime')) {
 }
 
 // Add Trusted Types policy for innerHTML safety
+let ttPolicy = null;
 if (window.trustedTypes && window.trustedTypes.createPolicy) {
   try {
-    window.trustedTypes.createPolicy('ytPlaylistCleaner', {
+    ttPolicy = window.trustedTypes.createPolicy('ytPlaylistCleaner', {
       createHTML: (string) => string
     });
   } catch (e) {
     // Policy already exists, ignore
   }
+}
+
+function sanitizeHTML(htmlString) {
+  return ttPolicy ? ttPolicy.createHTML(htmlString) : htmlString;
 }
 
 function showFirstTimeMessage() {
@@ -95,7 +103,7 @@ function showFirstTimeMessage() {
     font-family: 'YouTube Sans', Roboto, Arial, sans-serif;
     box-shadow: 0 4px 24px rgba(0,0,0,0.2);
   `;
-  content.innerHTML = `
+  content.innerHTML = sanitizeHTML(`
     <h2 style="margin: 0 0 24px 0; color: #030303; font-size: 32px;">G'day! 👋</h2>
     <p style="margin: 0 0 20px 0; color: #606060; line-height: 1.6; font-size: 18px;">
       Thanks heaps for using YouTube Playlist Cleaner!
@@ -116,7 +124,7 @@ function showFirstTimeMessage() {
       cursor: pointer;
       transition: background 0.2s;
     ">Got it, thanks!</button>
-  `;
+  `);
 
   modal.appendChild(content);
   document.body.appendChild(modal);
@@ -292,7 +300,7 @@ function createFloatingUI() {
   document.head.appendChild(styleSheet);
 
   const icon = document.createElement("div");
-  icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24"><path fill="#ffffff" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"/></svg>`;
+  icon.innerHTML = sanitizeHTML(`<svg width="22" height="22" viewBox="0 0 24 24"><path fill="#ffffff" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"/></svg>`);
   icon.style.cssText = `display: flex; align-items: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));`;
 
   const title = document.createElement("h3");
@@ -316,7 +324,7 @@ function createFloatingUI() {
 
   const darkModeToggle = document.createElement("button");
   darkModeToggle.id = "dark-mode-toggle";
-  darkModeToggle.innerHTML = '🌙';
+  darkModeToggle.innerHTML = sanitizeHTML('🌙');
   darkModeToggle.title = "Toggle Dark Mode";
   darkModeToggle.style.cssText = `
     margin-left: 8px;
@@ -332,7 +340,7 @@ function createFloatingUI() {
   darkModeToggle.addEventListener('click', (e) => {
     e.stopPropagation();
     config.darkMode = !config.darkMode;
-    darkModeToggle.innerHTML = config.darkMode ? '☀️' : '🌙';
+    darkModeToggle.innerHTML = sanitizeHTML(config.darkMode ? '☀️' : '🌙');
     updateTheme();
   });
 
@@ -416,7 +424,7 @@ function createFloatingUI() {
     state.isPaused = !state.isPaused;
     const badge = document.getElementById("cleaner-status-badge");
     if (state.isPaused) {
-      pauseResumeButton.innerHTML = "▶ Resume";
+      pauseResumeButton.innerHTML = sanitizeHTML("▶ Resume");
       pauseResumeButton.style.background = "#2ecc71";
       if (badge) {
         badge.textContent = "Paused";
@@ -424,7 +432,7 @@ function createFloatingUI() {
       }
       state.pauseNotificationId = showPersistentNotification('⏸ Deletion paused. Click Resume to continue.', 'warning');
     } else {
-      pauseResumeButton.innerHTML = "⏸ Pause";
+      pauseResumeButton.innerHTML = sanitizeHTML("⏸ Pause");
       pauseResumeButton.style.background = "#606060";
       if (badge) {
         badge.textContent = "Running";
@@ -491,7 +499,7 @@ function createAdvancedOptions() {
 
   const tooltipWrapper = document.createElement("span");
   tooltipWrapper.style.cssText = `position: relative; display: inline-block; margin-left: 6px; cursor: help;`;
-  tooltipWrapper.innerHTML = 'ℹ️';
+  tooltipWrapper.innerHTML = sanitizeHTML('ℹ️');
   tooltipWrapper.title = 'You must click the 3-dots button (⋮) in the playlist sidebar and select "Show unavailable videos" for this to work!';
 
   onlyUnavailableCheckbox.appendChild(tooltipWrapper);
@@ -561,7 +569,7 @@ function createCheckbox(labelText, id, checked) {
 
 function createButton(text, bgColor, isPrimary = false, isOutline = false) {
   const button = document.createElement("button");
-  button.innerHTML = text;
+  button.innerHTML = sanitizeHTML(text);
   button.style.cssText = `
     padding: ${isPrimary ? '12px 24px' : '10px 16px'};
     background: ${isOutline ? 'transparent' : bgColor};
@@ -628,7 +636,7 @@ function updateConfigFromInputs() {
 }
 
 function* getVideos() {
-  const videoSelector = "ytd-playlist-video-renderer";
+  const videoSelector = "ytd-playlist-video-renderer:not([data-ytpc-skipped='true'])";
   let videos = Array.from(document.querySelectorAll(videoSelector));
   if (config.shuffleDelete) {
     videos = shuffleArray(videos);
@@ -712,6 +720,9 @@ function shuffleArray(array) {
 
 async function cleanse(progressBar, statusText, countdownText) {
   originalLog("Cleansing...");
+  document.querySelectorAll("ytd-playlist-video-renderer[data-ytpc-skipped='true']").forEach(el => {
+    delete el.dataset.ytpcSkipped;
+  });
   state.deletedCount = 0;
   state.skippedCount = 0;
   state.totalVideos = Array.from(getVideos()).length;
@@ -773,6 +784,8 @@ async function cleanse(progressBar, statusText, countdownText) {
         if (deleteSuccess) {
           state.deletedCount++;
           state.consecutiveErrors = 0;
+        } else {
+          video.container.dataset.ytpcSkipped = 'true';
         }
 
         if (state.deletedCount % config.pauseAfter === 0 && state.deletedCount < config.maxDelete) {
@@ -799,6 +812,7 @@ async function cleanse(progressBar, statusText, countdownText) {
         if (!meetsUnavailableFilter) skipReason.push('not unavailable');
         if (!meetsAgeFilter) skipReason.push(`too recent`);
         originalLog(` Skipping "${video.title.substring(0, 30)}...": ${skipReason.join(', ')}`);
+        video.container.dataset.ytpcSkipped = 'true';
       }
 
       const progressPercent = (state.deletedCount / config.maxDelete) * 100;
@@ -838,7 +852,7 @@ async function cleanse(progressBar, statusText, countdownText) {
   const endTime = Date.now();
   const duration = Math.round((endTime - state.startTime) / 1000);
   originalLog(`Done! Deleted ${state.deletedCount} videos in ${duration} seconds`);
-  statusText.textContent = `✓ Finished: ${state.deletedCount}/${config.maxDelete} videos deleted (${state.totalVideos} scanned)`;
+  statusText.textContent = `✓ Finished: ${state.deletedCount}/${config.maxDelete} videos deleted`;
   showSummaryNotification(state.totalVideos, state.deletedCount, state.skippedCount, duration);
   updateStatistics(state.deletedCount, duration);
 }
@@ -989,12 +1003,12 @@ function showPersistentNotification(message, type = 'info') {
   notification.style.backgroundColor = colors[type];
 
   const icon = document.createElement('div');
-  icon.innerHTML = getNotificationIcon(type);
+  icon.innerHTML = sanitizeHTML(getNotificationIcon(type));
   icon.style.flexShrink = '0';
 
   const messageContainer = document.createElement('div');
   messageContainer.style.flex = '1';
-  messageContainer.innerHTML = message;
+  messageContainer.innerHTML = sanitizeHTML(message);
 
   notification.appendChild(icon);
   notification.appendChild(messageContainer);
@@ -1043,15 +1057,15 @@ function showNotification(message, type = 'info', duration = 5000) {
   notification.style.backgroundColor = colors[type];
 
   const icon = document.createElement('div');
-  icon.innerHTML = getNotificationIcon(type);
+  icon.innerHTML = sanitizeHTML(getNotificationIcon(type));
   icon.style.flexShrink = '0';
 
   const messageContainer = document.createElement('div');
   messageContainer.style.flex = '1';
-  messageContainer.innerHTML = message;
+  messageContainer.innerHTML = sanitizeHTML(message);
 
   const closeButton = document.createElement('button');
-  closeButton.innerHTML = '×';
+  closeButton.innerHTML = sanitizeHTML('×');
   closeButton.style.cssText = `
     background: none;
     border: none;

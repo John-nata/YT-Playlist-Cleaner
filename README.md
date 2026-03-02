@@ -15,7 +15,7 @@ This script has been further optimised with the help of Claude AI.
 ## Installation
 
 1. Install a userscript manager like Tampermonkey or Greasemonkey in your browser.
-2. Click on the following link to install the script: [Install YouTube Playlist Cleaner](https://github.com/John-nata/YT-Playlist-Cleaner/raw/main/YT-playlist-cleaner.js)
+2. Click on the following link to install the script: [Install YouTube Playlist Cleaner]([https://github.com/John-nata/YT-Playlist-Cleaner/raw/main/YT-playlist-cleaner.js](https://github.com/John-nata/YT-Playlist-Cleaner/raw/refs/heads/main/YT-playlist-cleaner.user.js))
 3. The script will automatically run when you visit a YouTube playlist page.
 
 ## What's New in **v2.0** (2026‑02‑09) 

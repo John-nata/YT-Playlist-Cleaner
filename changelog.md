@@ -3,6 +3,14 @@
 All notable changes to the script are documented in this file.
 Dates use the format YYYY-MM-DD.
 
+### [2.0.5] - 2026-03-02
+#### 🔧 Fixed
+- Trusted types security: Fixed a critical bug where the UI wouldn't appear for some users due to YouTube's strict CSP (Content Security Policy). Added a sanitization layer for `innerHTML` assignments.
+- Infinite autoScroll loop: Fixed an issue where the script would keep scrolling and re-scanning indefinitely after processing all videos. The script now correctly tracks and ignores skipped videos to ensure it reaches the completion state.
+- Improved compatibility: Added `@grant none` to the metadata to ensure the script runs correctly in the latest versions of Tampermonkey and Greasemonkey 4.x.
+- Auto-update metadata: Added @updateURL and @downloadurl to metadata for automatic script updates
+- Reliability: Added better guards for UI elements to prevent "Sink type mismatch" and other DOM-related errors during startup.
+
 ## [2.0.4] - 2026-02-19
 
 ### Changed

@@ -3,8 +3,7 @@
 // @version 2.0.5
 // @description A handy tool to tidy up your YouTube playlists with custom settings and smart features
 // @author John-nata
-// @match http*://*.youtube.com/playlist*
-// @match http*://youtube.com/playlist*
+// @match https://www.youtube.com/playlist*
 // @run-at document-idle
 // @grant none
 // @homepageURL https://github.com/John-nata/YT-Playlist-Cleaner
